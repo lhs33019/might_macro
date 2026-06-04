@@ -1,0 +1,119 @@
+/**
+ * lib/types.ts — 프론트 ↔ 백 API 계약 (Contract, Frozen)
+ *
+ * 이 파일은 /api/* Route Handler(백)와 컴포넌트(프론트)가
+ * 함께 import하는 단일 진실 출처(SSoT)다.
+ *
+ * 규칙:
+ *   - 이 파일의 타입을 바꾸면 백·프론트 양쪽을 동시에 수정해야 한다.
+ *   - JSON 키는 camelCase (DB snake_case ↔ 변환은 백엔드 내부에서 처리).
+ *   - 모든 필드는 readonly — 응답 객체를 변이하지 않는다.
+ *   - 파생 지표(mom, yoy, surprise)는 DB에 저장하지 않고 백엔드에서 계산해 내려준다.
+ */
+
+// ─────────────────────────────────────────────
+// 공통 열거형
+// ─────────────────────────────────────────────
+
+export type SeasonalAdj = 'SA' | 'NSA'
+
+/** 머신 리더블 에러 코드 — 프론트에서 분기 처리에 사용 */
+export type ApiErrorCode =
+  | 'SERIES_NOT_FOUND'       // 요청한 series_id 없음
+  | 'OBSERVATION_NOT_FOUND'  // 해당 시리즈 관측값 없음
+  | 'INVALID_CATEGORY'       // 허용되지 않는 category 값
+  | 'INVALID_PARAMS'         // 쿼리 파라미터 형식 오류
+  | 'DB_ERROR'               // Supabase 조회 실패
+  | 'INTERNAL_ERROR'         // 서버 내부 오류
+
+// ─────────────────────────────────────────────
+// 에러 응답 (모든 /api/* 공통)
+// ─────────────────────────────────────────────
+
+export interface ApiError {
+  readonly error: {
+    readonly code: ApiErrorCode
+    readonly message: string  // 사람이 읽는 설명
+    readonly status: number   // HTTP 상태 코드 (400 | 404 | 500 ...)
+  }
+}
+
+// 타입 가드 — 응답이 에러인지 판별
+export function isApiError(res: unknown): res is ApiError {
+  return (
+    typeof res === 'object' &&
+    res !== null &&
+    'error' in res &&
+    typeof (res as ApiError).error?.code === 'string'
+  )
+}
+
+// ─────────────────────────────────────────────
+// SeriesItem — GET /api/series 의 개별 시리즈
+// ─────────────────────────────────────────────
+
+export interface SeriesItem {
+  readonly seriesId: string      // FRED series_id (예: "PPIACO")
+  readonly title: string         // 사람이 읽는 이름
+  readonly units: string         // 단위 (예: "Index 1982=100")
+  readonly seasonalAdj: SeasonalAdj
+  readonly category: string      // FRED 카테고리 체계 값
+  readonly lastUpdated: string   // ISO 8601 (예: "2024-03-15T00:00:00")
+}
+
+// ─────────────────────────────────────────────
+// SeriesListResponse — GET /api/series 전체 응답
+// ─────────────────────────────────────────────
+
+export interface SeriesListResponse {
+  readonly data: readonly SeriesItem[]
+  readonly total: number           // 필터 적용 후 전체 건수
+  readonly filter: {
+    readonly category: string | null  // 적용된 카테고리 필터 (null = 전체)
+  }
+}
+
+// ─────────────────────────────────────────────
+// KpiItem — GET /api/kpi 의 개별 KPI 카드 데이터
+// ─────────────────────────────────────────────
+
+export interface KpiItem {
+  readonly seriesId: string
+  readonly title: string
+  readonly refDate: string         // 기준 발표월 (예: "2024-02-01")
+  readonly latestValue: number     // 최신 지수값 (원본)
+  readonly yoy: number | null      // 전년 동월 대비 (%)
+  readonly consensusYoy: number | null  // 시장 예상 YoY (%, 없으면 null)
+  readonly surprise: number | null      // 실측 YoY - 컨센서스 (없으면 null)
+  readonly insight: string | null  // InsightLabel — lib/analytics calcInsight 결과
+}
+
+export interface KpiListResponse {
+  readonly data: readonly KpiItem[]
+  readonly filter: {
+    readonly category: string | null
+  }
+}
+
+// ─────────────────────────────────────────────
+// ObservationItem — GET /api/series/{id}/observations
+// ─────────────────────────────────────────────
+
+export interface ObservationItem {
+  readonly date: string          // ISO 8601, 해당 월 1일 (예: "2024-01-01")
+  readonly value: number | null  // 결측은 null (0 대체 금지)
+  readonly mom: number | null    // 전월 대비 % (첫 관측은 null)
+  readonly yoy: number | null    // 전년 동월 대비 % (12개월 미만 구간은 null)
+}
+
+export interface ObservationListResponse {
+  readonly seriesId: string
+  readonly title: string
+  readonly units: string
+  readonly seasonalAdj: SeasonalAdj
+  readonly data: readonly ObservationItem[]
+  readonly range: {
+    readonly from: string | null   // 실제 데이터 시작일
+    readonly to: string | null     // 실제 데이터 종료일
+  }
+}

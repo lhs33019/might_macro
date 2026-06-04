@@ -1,0 +1,394 @@
+@import url('https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400;0,6..96,500;0,6..96,600;1,6..96,400&display=swap');
+@import "tailwindcss";
+
+/* ============================================================
+   PPI Insight — Design Tokens + Component CSS
+   Dark theme · Asian market convention: 상승=warm, 하락=cool
+   Fonts: BookkMyungjo (display) + Pretendard Variable (UI)
+   ============================================================ */
+
+@font-face {
+  font-family: 'BookkMyungjo';
+  font-weight: 300 400;
+  font-style: normal;
+  font-display: swap;
+  src: url('/fonts/BookkMyungjo_Light.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'BookkMyungjo';
+  font-weight: 500 800;
+  font-style: normal;
+  font-display: swap;
+  src: url('/fonts/BookkMyungjo_Bold.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'Pretendard Variable';
+  font-weight: 45 920;
+  font-style: normal;
+  font-display: swap;
+  src: url('/fonts/PretendardVariable.woff2') format('woff2-variations');
+}
+
+:root {
+  /* ====== BASE SURFACES ====================================== */
+  --bg-0:        #070A11;
+  --bg-1:        #0B0F18;
+  --surface-1:   #111726;
+  --surface-2:   #18203180;
+  --surface-2s:  #182031;
+  --surface-3:   #1F2939;
+
+  /* ====== BORDERS / HAIRLINES =============================== */
+  --border-subtle:  rgba(233, 238, 248, 0.06);
+  --border-default: rgba(233, 238, 248, 0.10);
+  --border-strong:  rgba(233, 238, 248, 0.18);
+  --border-focus:   rgba(200, 169, 106, 0.55);
+
+  /* ====== TEXT ============================================== */
+  --text-hi:        #F2F5FB;
+  --text-mid:       #A6B0C2;
+  --text-lo:        #6B7588;
+  --text-disabled:  #404a5c;
+
+  /* ====== BRAND ACCENT — champagne gold ==================== */
+  --accent:         #C8A96A;
+  --accent-hover:   #D8BD83;
+  --accent-press:   #B7965A;
+  --accent-soft:    rgba(200, 169, 106, 0.14);
+  --accent-line:    rgba(200, 169, 106, 0.40);
+  --on-accent:      #1A1406;
+
+  /* ====== SEMANTIC DIRECTION (상승 warm / 하락 cool) ========= */
+  --up:          #F4715E;
+  --up-strong:   #FF8473;
+  --up-soft:     rgba(244, 113, 94, 0.15);
+  --up-line:     rgba(244, 113, 94, 0.45);
+
+  --down:        #54A6D6;
+  --down-strong: #71BCE8;
+  --down-soft:   rgba(84, 166, 214, 0.15);
+  --down-line:   rgba(84, 166, 214, 0.45);
+
+  --flat:        #8A94A8;
+  --flat-soft:   rgba(138, 148, 168, 0.14);
+
+  /* ====== DATA-VIZ CATEGORICAL ============================= */
+  --cat-food:      #E0A95E;
+  --cat-energy:    #D17B53;
+  --cat-goods:     #6E92C4;
+  --cat-services:  #9B86C4;
+  --cat-trade:     #5FB6A6;
+  --cat-transport: #C98AA8;
+
+  --grid-line:  rgba(233, 238, 248, 0.055);
+  --axis-text:  #66728A;
+
+  /* ====== RADII ============================================= */
+  --r-xs:   4px;
+  --r-sm:   8px;
+  --r-md:   12px;
+  --r-lg:   16px;
+  --r-xl:   20px;
+  --r-pill: 999px;
+
+  /* ====== SPACING (4px base) ================================ */
+  --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px; --sp-4: 16px;
+  --sp-5: 20px; --sp-6: 24px; --sp-8: 32px; --sp-10: 40px;
+
+  /* ====== ELEVATION ========================================= */
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.40);
+  --shadow-md: 0 6px 20px rgba(0,0,0,0.45);
+  --shadow-lg: 0 16px 48px rgba(0,0,0,0.55);
+  --glow-accent: 0 0 0 1px var(--border-focus), 0 4px 18px rgba(200,169,106,0.18);
+
+  /* ====== TYPE FAMILIES ==================================== */
+  --font-display: 'BookkMyungjo', 'Bodoni Moda', Georgia, serif;
+  --font-sans: 'Pretendard Variable', -apple-system, BlinkMacSystemFont,
+               'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  --font-mono: 'SFMono-Regular', ui-monospace, 'Menlo', monospace;
+  --num: 'Pretendard Variable', var(--font-sans);
+  --feat-tnum: "tnum" 1, "ss01" 1;
+}
+
+@theme inline {
+  --color-background: var(--bg-1);
+  --color-foreground: var(--text-hi);
+}
+
+/* ============================================================
+   BASE
+   ============================================================ */
+*, *::before, *::after { box-sizing: border-box; }
+
+html { color-scheme: dark; }
+
+body {
+  margin: 0;
+  background: radial-gradient(120% 80% at 50% -10%, rgba(200,169,106,0.05), transparent 60%),
+              var(--bg-1);
+  color: var(--text-mid);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+
+::-webkit-scrollbar { height: 8px; width: 8px; }
+::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 8px; }
+
+/* ============================================================
+   TYPE ROLES
+   ============================================================ */
+.t-display {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: clamp(40px, 5vw, 68px);
+  line-height: 1.02;
+  letter-spacing: -0.01em;
+  color: var(--text-hi);
+}
+.t-serif-title {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 24px;
+  line-height: 1.15;
+  color: var(--text-hi);
+}
+.t-h1 { font: 600 32px/1.18 var(--font-sans); letter-spacing: -0.02em; color: var(--text-hi); }
+.t-h2 { font: 600 24px/1.22 var(--font-sans); letter-spacing: -0.015em; color: var(--text-hi); }
+.t-h3 { font: 600 19px/1.28 var(--font-sans); letter-spacing: -0.01em; color: var(--text-hi); margin: 0; }
+.t-title { font: 600 16px/1.35 var(--font-sans); letter-spacing: -0.005em; color: var(--text-hi); }
+.t-body    { font: 400 15px/1.55 var(--font-sans); color: var(--text-mid); }
+.t-body-sm { font: 400 13px/1.5  var(--font-sans); color: var(--text-mid); }
+.t-caption { font: 400 12px/1.4  var(--font-sans); color: var(--text-lo); }
+.t-label {
+  font: 600 11px/1.2 var(--font-sans);
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--text-lo);
+}
+.t-data-xl {
+  font-family: var(--num);
+  font-weight: 600;
+  font-size: 40px;
+  line-height: 1.0;
+  letter-spacing: -0.02em;
+  font-feature-settings: var(--feat-tnum);
+  color: var(--text-hi);
+}
+.t-data-lg {
+  font-family: var(--num);
+  font-weight: 600;
+  font-size: 26px;
+  line-height: 1.05;
+  letter-spacing: -0.015em;
+  font-feature-settings: var(--feat-tnum);
+  color: var(--text-hi);
+}
+.t-data {
+  font-family: var(--num);
+  font-weight: 500;
+  font-size: 15px;
+  font-feature-settings: var(--feat-tnum);
+  color: var(--text-hi);
+}
+.t-mono { font: 500 12px/1.4 var(--font-mono); color: var(--text-mid); }
+
+.is-up   { color: var(--up); }
+.is-down { color: var(--down); }
+.is-flat { color: var(--flat); }
+
+/* ============================================================
+   LAYOUT
+   ============================================================ */
+.nw-app {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 14px clamp(16px, 4vw, 40px) 48px;
+}
+
+/* KPI ROW */
+.nw-kpi-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 16px;
+}
+@media (max-width: 1100px) { .nw-kpi-row { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 560px)  { .nw-kpi-row { grid-template-columns: 1fr; } }
+
+/* KPI CARD */
+.nw-kpi {
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-lg);
+  padding: 18px 18px 16px;
+  position: relative;
+  overflow: hidden;
+}
+.nw-kpi::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: var(--rule, var(--border-default));
+}
+
+/* MAIN GRID */
+.nw-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.65fr) minmax(300px, 1fr);
+  gap: 16px;
+}
+@media (max-width: 880px) { .nw-grid { grid-template-columns: 1fr; } }
+
+.nw-card {
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-lg);
+  padding: 22px 22px 20px;
+  min-width: 0;
+}
+
+/* APP LOGO */
+.nw-applogo {
+  width: 46px;
+  height: 46px;
+  border-radius: 13px;
+  overflow: hidden;
+  border: 1px solid var(--border-default);
+  background: #04060c;
+  flex: 0 0 auto;
+  box-shadow: var(--shadow-sm);
+}
+.nw-applogo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 42%;
+  transform: scale(1.14);
+  transform-origin: 50% 42%;
+  display: block;
+}
+
+/* ============================================================
+   CONTROLS
+   ============================================================ */
+
+/* SEGMENTED (period) */
+.nw-seg {
+  display: inline-flex;
+  background: var(--bg-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-pill);
+  padding: 4px;
+  gap: 2px;
+}
+.nw-seg-btn {
+  border: 0;
+  background: transparent;
+  color: var(--text-mid);
+  font: 600 13px/1 var(--font-sans);
+  padding: 8px 15px;
+  border-radius: var(--r-pill);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all .16s cubic-bezier(.2,.7,.2,1);
+}
+.nw-seg-btn:hover { color: var(--text-hi); }
+.nw-seg-btn.on {
+  background: var(--accent-soft);
+  color: var(--accent);
+  box-shadow: var(--glow-accent);
+}
+
+/* TOGGLE */
+.nw-toggle {
+  display: inline-flex;
+  background: var(--bg-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-sm);
+  padding: 3px;
+  gap: 2px;
+}
+.nw-toggle-btn {
+  border: 0;
+  background: transparent;
+  color: var(--text-lo);
+  font: 600 12px/1 var(--font-sans);
+  padding: 8px 13px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all .16s cubic-bezier(.2,.7,.2,1);
+}
+.nw-toggle-btn:hover { color: var(--text-mid); }
+.nw-toggle-btn.on { background: var(--surface-3); color: var(--text-hi); }
+
+/* CHIP (consensus checkbox) */
+.nw-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border-default);
+  background: transparent;
+  color: var(--text-mid);
+  font: 600 12px/1 var(--font-sans);
+  padding: 8px 13px 8px 10px;
+  border-radius: var(--r-pill);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all .16s cubic-bezier(.2,.7,.2,1);
+}
+.nw-chip:hover { border-color: var(--border-strong); color: var(--text-hi); }
+.nw-chip.on { border-color: var(--accent-line); color: var(--accent); }
+.nw-chip-box {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1.5px solid var(--border-strong);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+}
+.nw-chip.on .nw-chip-box {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+}
+
+/* GHOST BUTTON */
+.nw-btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--border-default);
+  background: transparent;
+  color: var(--text-mid);
+  font: 600 13px/1 var(--font-sans);
+  padding: 9px 14px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all .16s;
+}
+.nw-btn-ghost:hover { border-color: var(--border-strong); color: var(--text-hi); }
+.nw-btn-ghost:active { transform: translateY(1px); }
+
+/* ============================================================
+   SKELETON SHIMMER
+   ============================================================ */
+.nw-sk {
+  background: linear-gradient(
+    100deg,
+    var(--surface-2s) 30%,
+    var(--surface-3) 50%,
+    var(--surface-2s) 70%
+  );
+  background-size: 200% 100%;
+  animation: nw-sh 1.4s ease-in-out infinite;
+}
+@keyframes nw-sh {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+@media (prefers-reduced-motion: reduce) { .nw-sk { animation: none; } }
