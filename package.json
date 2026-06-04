@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "ingest": "npx tsx scripts/ingest.ts"
+    "ingest": "node --env-file=.env.local --import tsx scripts/ingest.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.10.3",
