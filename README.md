@@ -182,12 +182,13 @@ npm run ingest
 **내부 동작 (`scripts/ingest.ts`)**:
 
 ```
-1. 시리즈 자동 발견
-   ├─ FRED /series/search?search_text=producer+price+index&frequency=Monthly
-   │   → 검색 결과 전체 수집 (offset 순회, 500ms 딜레이)
-   └─ FRED /category/series?category_id=32,32455
-       → PPI 카테고리 시리즈 수집
-   → 두 결과 합산 후 중복 제거
+1. 시리즈 자동 발견 (PPI 카테고리 트리 재귀 탐색)
+   └─ FRED /category/series + /category/children 를 루트(category_id=31,
+       "Producer Price Indexes")부터 DFS로 순회
+       → 각 카테고리의 직속 Monthly 시리즈를 누적, 하위 카테고리로 계속 하강
+       → visited 집합으로 순환/중복 방지, 약 8,100여 개 시리즈 발견
+   ※ /series/search 방식은 FRED의 5,000건 페이지네이션 상한에 걸려
+      결과가 통째로 폐기되는 문제가 있어 카테고리 재귀 방식으로 전환함
 
 2. 순차 적재 (FRED 레이트 제한 보호 — 병렬 처리 금지)
    [1/N] PPIACO 적재 중... → 1360건 완료

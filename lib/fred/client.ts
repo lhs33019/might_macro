@@ -41,38 +41,28 @@ export async function fetchObservations(seriesId: string): Promise<FredObservati
   return data.observations as FredObservation[]
 }
 
+export interface FredCategory {
+  id: number
+  name: string
+  parent_id: number
+}
+
 /**
- * FRED /series/search — 검색어로 시리즈 전체 목록 수집 (Monthly 필터)
- * FRED는 최대 1000건/요청이므로 offset 순회로 전체를 합산한다.
+ * FRED /category/children — 특정 카테고리의 직속 하위 카테고리 목록.
+ * 재귀 트리 탐색의 한 단계로 사용한다.
  */
-export async function fetchSeriesBySearch(
-  searchText: string,
-  frequency = 'Monthly',
-): Promise<FredSeriesMeta[]> {
-  const limit = 1000
-  let offset = 0
-  const all: FredSeriesMeta[] = []
+export async function fetchCategoryChildren(
+  categoryId: number,
+): Promise<FredCategory[]> {
+  const url =
+    `${FRED_BASE}/category/children` +
+    `?category_id=${categoryId}` +
+    `&api_key=${apiKey()}&file_type=json`
 
-  while (true) {
-    const url =
-      `${FRED_BASE}/series/search` +
-      `?search_text=${encodeURIComponent(searchText)}` +
-      `&filter_variable=frequency&filter_value=${encodeURIComponent(frequency)}` +
-      `&limit=${limit}&offset=${offset}` +
-      `&api_key=${apiKey()}&file_type=json`
-
-    const res = await fetch(url)
-    if (!res.ok) throw new Error(`FRED series/search 실패 (${res.status})`)
-    const data = await res.json()
-    const seriess: FredSeriesMeta[] = data.seriess ?? []
-    all.push(...seriess)
-
-    if (seriess.length < limit) break   // 마지막 페이지
-    offset += limit
-    await new Promise((r) => setTimeout(r, 500))  // FRED 레이트 제한 보호
-  }
-
-  return all
+  const res = await fetch(url)
+  if (!res.ok) throw new Error(`FRED category/children 실패: category_id=${categoryId} (${res.status})`)
+  const data = await res.json()
+  return (data.categories ?? []) as FredCategory[]
 }
 
 /**

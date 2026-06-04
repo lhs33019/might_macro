@@ -54,6 +54,7 @@ export function SeriesTable({
 }: SeriesTableProps) {
   return (
     <div>
+      <div className="nw-table-scroll">
       <table className="nw-series-table">
         <thead>
           <tr>
@@ -119,6 +120,7 @@ export function SeriesTable({
           )}
         </tbody>
       </table>
+      </div>
 
       {/* 페이지네이션 */}
       <div className="nw-pagination">

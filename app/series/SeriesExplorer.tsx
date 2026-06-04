@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useCallback } from 'react'
 import Link from 'next/link'
-import { ChevronLeft } from 'lucide-react'
+import { ChevronLeft, Search, X } from 'lucide-react'
 import { TopMoversTable } from '@/components/series/TopMoversTable'
 import { SeriesTable, type SortKey, type SortDir } from '@/components/series/SeriesTable'
 import { SeriesDetailPanel } from '@/components/series/SeriesDetailPanel'
@@ -32,13 +32,23 @@ export function SeriesExplorer({ initialData }: SeriesExplorerProps) {
   const [obsLoading, setObsLoading]     = useState(false)
   const [period, setPeriod]       = useState<Period>('3Y')
   const [mode, setMode]           = useState<ObsMode>('mom')
+  const [query, setQuery]         = useState('')
 
   const allData = initialData?.data ?? []
   const movers  = initialData?.movers
 
-  // 전체 데이터 정렬 (클라이언트 — 전체 기준)
+  // 검색 필터 (시리즈 ID 또는 이름 — 대소문자 무시)
+  const filtered = useMemo<readonly SeriesWithStats[]>(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return allData
+    return allData.filter(
+      (s) => s.seriesId.toLowerCase().includes(q) || s.title.toLowerCase().includes(q),
+    )
+  }, [allData, query])
+
+  // 검색 결과 정렬 (클라이언트 — 전체 기준)
   const sorted = useMemo<SeriesWithStats[]>(() => {
-    return [...allData].sort((a, b) => {
+    return [...filtered].sort((a, b) => {
       let av: string | number | null
       let bv: string | number | null
       if (sortKey === 'seriesId') { av = a.seriesId; bv = b.seriesId }
@@ -59,7 +69,12 @@ export function SeriesExplorer({ initialData }: SeriesExplorerProps) {
         ? String(av).localeCompare(String(bv))
         : String(bv).localeCompare(String(av))
     })
-  }, [allData, sortKey, sortDir])
+  }, [filtered, sortKey, sortDir])
+
+  const handleQueryChange = useCallback((value: string) => {
+    setQuery(value)
+    setPage(0)  // 검색어 변경 시 첫 페이지로
+  }, [])
 
   const pageSlice  = useMemo(() => sorted.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE), [sorted, page])
   const totalPages = Math.ceil(sorted.length / PAGE_SIZE)
@@ -155,6 +170,29 @@ export function SeriesExplorer({ initialData }: SeriesExplorerProps) {
           </div>
         </div>
       ) : (
+        <>
+        {/* ── 검색창 ── */}
+        <div className="nw-search">
+          <Search className="nw-search-icon" size={16} aria-hidden />
+          <input
+            type="text"
+            className="nw-search-input"
+            placeholder="시리즈 ID 또는 이름으로 검색 (예: PPIFIS, Final Demand)"
+            value={query}
+            onChange={(e) => handleQueryChange(e.target.value)}
+            aria-label="시리즈 검색"
+          />
+          {query && (
+            <button
+              className="nw-search-clear"
+              onClick={() => handleQueryChange('')}
+              aria-label="검색어 지우기"
+            >
+              <X size={15} />
+            </button>
+          )}
+        </div>
+
         <div className="nw-series-body">
           {/* 시리즈 목록 */}
           <div className="nw-card" style={{ minWidth: 0 }}>
@@ -188,6 +226,7 @@ export function SeriesExplorer({ initialData }: SeriesExplorerProps) {
             />
           )}
         </div>
+        </>
       )}
     </>
   )
