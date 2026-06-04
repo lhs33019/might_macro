@@ -40,3 +40,57 @@ export async function fetchObservations(seriesId: string): Promise<FredObservati
   const data = await res.json()
   return data.observations as FredObservation[]
 }
+
+/**
+ * FRED /series/search — 검색어로 시리즈 전체 목록 수집 (Monthly 필터)
+ * FRED는 최대 1000건/요청이므로 offset 순회로 전체를 합산한다.
+ */
+export async function fetchSeriesBySearch(
+  searchText: string,
+  frequency = 'Monthly',
+): Promise<FredSeriesMeta[]> {
+  const limit = 1000
+  let offset = 0
+  const all: FredSeriesMeta[] = []
+
+  while (true) {
+    const url =
+      `${FRED_BASE}/series/search` +
+      `?search_text=${encodeURIComponent(searchText)}` +
+      `&filter_variable=frequency&filter_value=${encodeURIComponent(frequency)}` +
+      `&limit=${limit}&offset=${offset}` +
+      `&api_key=${apiKey()}&file_type=json`
+
+    const res = await fetch(url)
+    if (!res.ok) throw new Error(`FRED series/search 실패 (${res.status})`)
+    const data = await res.json()
+    const seriess: FredSeriesMeta[] = data.seriess ?? []
+    all.push(...seriess)
+
+    if (seriess.length < limit) break   // 마지막 페이지
+    offset += limit
+    await new Promise((r) => setTimeout(r, 500))  // FRED 레이트 제한 보호
+  }
+
+  return all
+}
+
+/**
+ * FRED /category/series — 특정 카테고리의 Monthly 시리즈 목록 수집
+ */
+export async function fetchCategorySeriesIds(
+  categoryId: number,
+  frequency = 'Monthly',
+): Promise<FredSeriesMeta[]> {
+  const url =
+    `${FRED_BASE}/category/series` +
+    `?category_id=${categoryId}` +
+    `&filter_variable=frequency&filter_value=${encodeURIComponent(frequency)}` +
+    `&limit=1000` +
+    `&api_key=${apiKey()}&file_type=json`
+
+  const res = await fetch(url)
+  if (!res.ok) throw new Error(`FRED category/series 실패: category_id=${categoryId} (${res.status})`)
+  const data = await res.json()
+  return (data.seriess ?? []) as FredSeriesMeta[]
+}

@@ -1,9 +1,8 @@
 'use client'
 
 import { useState, useRef, useLayoutEffect, useMemo, useCallback, useId } from 'react'
-import { type DataPoint } from '@/lib/data/dummy'
 
-interface ChartPoint {
+export interface ChartPoint {
   date: string
   y: number
   m: number

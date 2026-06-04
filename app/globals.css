@@ -375,6 +375,121 @@ body {
 .nw-btn-ghost:active { transform: translateY(1px); }
 
 /* ============================================================
+   SERIES PAGE — 시리즈 탐색 페이지
+   ============================================================ */
+
+/* Top Movers 4분할 그리드 */
+.nw-series-movers {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-4);
+}
+@media (max-width: 1100px) { .nw-series-movers { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 640px)  { .nw-series-movers { grid-template-columns: 1fr; } }
+
+/* 본문: 시리즈 목록 + 상세 패널 */
+.nw-series-body {
+  display: grid;
+  grid-template-columns: 1fr 440px;
+  gap: var(--sp-4);
+  align-items: flex-start;
+}
+@media (max-width: 1100px) { .nw-series-body { grid-template-columns: 1fr; } }
+
+/* Top Movers 테이블 */
+.nw-mover-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.nw-mover-table th {
+  font: 600 11px/1.2 var(--font-sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-lo);
+  text-align: left;
+  padding: var(--sp-1) 0 var(--sp-2);
+  border-bottom: 1px solid var(--border-default);
+}
+.nw-mover-table td {
+  padding: var(--sp-2) 0;
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: middle;
+  font: 400 12px/1.4 var(--font-sans);
+  color: var(--text-mid);
+}
+.nw-mover-table tr:last-child td { border-bottom: none; }
+
+/* 시리즈 목록 테이블 */
+.nw-series-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.nw-series-table th {
+  font: 600 11px/1.2 var(--font-sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-lo);
+  text-align: left;
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--border-default);
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+  transition: color .12s;
+}
+.nw-series-table th:hover { color: var(--text-mid); }
+.nw-series-table th.active { color: var(--accent); }
+.nw-series-table th.active::after { content: attr(data-dir); margin-left: 4px; }
+.nw-series-table td {
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--border-subtle);
+  font: 400 13px/1.4 var(--font-sans);
+  color: var(--text-mid);
+  white-space: nowrap;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nw-series-table tbody tr {
+  cursor: pointer;
+  transition: background .12s;
+}
+.nw-series-table tbody tr:hover { background: var(--surface-2s); }
+.nw-series-row--selected { background: var(--accent-soft) !important; }
+.nw-series-row--selected td { color: var(--text-hi); }
+
+/* 상세 패널 */
+.nw-series-detail {
+  background: var(--surface-1);
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-lg);
+  padding: var(--sp-5);
+  position: sticky;
+  top: 80px;
+}
+
+/* 방향값 표시 (숫자 + 글리프) */
+.nw-val-up   { color: var(--up);   font-family: var(--num); font-weight: 600; font-feature-settings: "tnum" 1; }
+.nw-val-down { color: var(--down); font-family: var(--num); font-weight: 600; font-feature-settings: "tnum" 1; }
+.nw-val-flat { color: var(--flat); font-family: var(--num); font-weight: 600; font-feature-settings: "tnum" 1; }
+
+/* 페이지네이션 */
+.nw-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sp-3);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--border-subtle);
+  margin-top: var(--sp-2);
+}
+.nw-pagination-info {
+  font: 400 13px/1 var(--font-sans);
+  color: var(--text-lo);
+}
+
+/* ============================================================
    SKELETON SHIMMER
    ============================================================ */
 .nw-sk {

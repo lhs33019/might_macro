@@ -117,3 +117,53 @@ export interface ObservationListResponse {
     readonly to: string | null     // 실제 데이터 종료일
   }
 }
+
+// ─────────────────────────────────────────────
+// SeriesWithStats — 시리즈 메타 + 최근 MoM·YoY
+// GET /api/series 응답에 사용
+// ─────────────────────────────────────────────
+
+export interface SeriesWithStats {
+  readonly seriesId: string
+  readonly title: string
+  readonly units: string
+  readonly seasonalAdj: SeasonalAdj
+  readonly category: string
+  readonly lastUpdated: string
+  readonly latestDate: string | null
+  readonly latestValue: number | null
+  readonly mom: number | null   // 최근 MoM (%)
+  readonly yoy: number | null   // 최근 YoY (%)
+}
+
+// ─────────────────────────────────────────────
+// TopMover — 상위·하위 이동 시리즈
+// ─────────────────────────────────────────────
+
+export interface TopMover {
+  readonly seriesId: string
+  readonly title: string
+  readonly category: string
+  readonly value: number
+  readonly direction: 'up' | 'down' | 'flat'
+}
+
+export interface TopMoversResponse {
+  readonly momTop:    readonly TopMover[]   // MoM 상위 5
+  readonly momBottom: readonly TopMover[]   // MoM 하위 5
+  readonly yoyTop:    readonly TopMover[]   // YoY 상위 5
+  readonly yoyBottom: readonly TopMover[]   // YoY 하위 5
+  readonly refDate:   string | null         // 기준월
+}
+
+// ─────────────────────────────────────────────
+// SeriesFullListResponse — GET /api/series 전체 응답
+// (기존 SeriesListResponse는 유지)
+// ─────────────────────────────────────────────
+
+export interface SeriesFullListResponse {
+  readonly data:       readonly SeriesWithStats[]
+  readonly movers:     TopMoversResponse
+  readonly total:      number
+  readonly computedAt: string
+}

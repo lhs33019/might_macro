@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import Image from 'next/image'
-import { Download } from 'lucide-react'
+import Link from 'next/link'
+import { Download, LayoutGrid } from 'lucide-react'
 import { PPI_DATA, type DataPoint } from '@/lib/data/dummy'
 import { KpiCard, InfoCard } from '@/components/KpiCard'
 import { Segmented, Toggle, CheckChip } from '@/components/controls'
@@ -132,6 +133,11 @@ export default function DashboardPage() {
               {D.release.date.replace(/-/g, '.')}
             </div>
           </div>
+          <Link href="/series" style={{ textDecoration: 'none' }}>
+            <button className="nw-btn-ghost" aria-label="시리즈 탐색">
+              <LayoutGrid size={16} /> 시리즈 탐색
+            </button>
+          </Link>
           <button className="nw-btn-ghost" aria-label="내보내기">
             <Download size={16} /> 내보내기
           </button>

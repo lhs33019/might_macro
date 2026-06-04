@@ -1,71 +1,204 @@
 /**
  * FRED → Supabase 적재 스크립트
- * 실행: npx tsx scripts/ingest.ts
+ * 실행: npm run ingest              (전체 발견 → 적재)
+ *       npm run ingest:retry        (이전 실패분만 재시도)
  *
- * - series / observation 테이블에 upsert (멱등)
- * - FRED_API_KEY, NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY 필요
- * - 대표 지수: PPIACO (전체 PPI). 추가 시리즈는 SERIES_IDS 배열에 추가
+ * 기능:
+ *  - FRED /series/search 와 /category/series로 PPI 월간 시리즈 자동 발견
+ *  - [n/total] 형식 진행상황 실시간 출력
+ *  - 개별 시리즈 실패 시 오류 기록 후 나머지 계속 진행
+ *  - 완료 후 실패 목록을 failed-series.json에 저장
+ *  - --retry 플래그: failed-series.json의 목록만 재시도
  */
 
+import * as fs from 'node:fs'
+import * as path from 'node:path'
 import { createClient } from '@supabase/supabase-js'
-import { fetchSeriesMeta, fetchObservations } from '../lib/fred/client'
+import {
+  fetchSeriesMeta,
+  fetchObservations,
+  fetchSeriesBySearch,
+  fetchCategorySeriesIds,
+} from '../lib/fred/client'
 
-const SERIES_IDS = [
-  'PPIACO', // 전체 PPI — 대표(헤드라인)
-  // 추가 시리즈는 여기에 추가
+// ─── 설정 ────────────────────────────────────────────────────────────────────
+
+/** 자동 발견에 사용할 FRED PPI 검색어 */
+const SEARCH_QUERIES = ['producer price index']
+
+/** 자동 발견에 사용할 FRED PPI 카테고리 ID 목록 */
+const PPI_CATEGORY_IDS = [
+  32,     // Producer Price Indexes (PPIs) — 최상위
+  32455,  // Final Demand
 ]
 
-function supabase() {
+const FAILED_FILE = path.join(process.cwd(), 'failed-series.json')
+const CHUNK_SIZE = 500   // observation upsert 청크 크기
+
+// ─── Supabase 클라이언트 ──────────────────────────────────────────────────────
+
+function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!url || !key) throw new Error('Supabase 환경변수 누락')
+  if (!url || !key) throw new Error('Supabase 환경변수 누락 (NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)')
   return createClient(url, key)
 }
 
-async function ingestSeries(seriesId: string) {
-  const db = supabase()
+// ─── 카테고리 자동 분류 ────────────────────────────────────────────────────────
 
-  // 1. 시리즈 메타 upsert
+function inferCategory(id: string, title: string): string {
+  const t = title.toLowerCase()
+  if (t.includes('food')) return 'food'
+  if (t.includes('energy')) return 'energy'
+  if (t.includes('ex food') || t.includes('ex. food') || t.includes('core')) return 'core'
+  if (t.includes('service')) return 'service'
+  if (t.includes('goods') && !t.includes('finished goods')) return 'goods'
+  if ((t.includes('final demand') || id === 'PPIFIS') && !t.includes('food') && !t.includes('energy')) return 'headline'
+  return 'other'
+}
+
+// ─── 시리즈 적재 ────────────────────────────────────────────────────────────────
+
+async function ingestSeries(seriesId: string): Promise<number> {
+  const db = getSupabase()
+
+  // 1. 메타 upsert
   const meta = await fetchSeriesMeta(seriesId)
   const { error: seriesErr } = await db.from('series').upsert({
-    series_id: meta.id,
-    title: meta.title,
-    units: meta.units,
-    frequency: meta.frequency,
+    series_id:   meta.id,
+    title:       meta.title,
+    units:       meta.units,
+    frequency:   meta.frequency,
     seasonal_adj: meta.seasonal_adjustment.startsWith('Seasonally') ? 'SA' : 'NSA',
-    category: 'headline', // 기본값 — 수동으로 조정 가능
+    category:    inferCategory(meta.id, meta.title),
     last_updated: meta.last_updated,
   })
   if (seriesErr) throw new Error(`series upsert 실패: ${seriesErr.message}`)
 
-  // 2. 관측값 upsert (과거 전체)
+  // 2. 관측값 upsert (과거 전체, 500건 청크)
   const observations = await fetchObservations(seriesId)
   const rows = observations
-    .filter((o) => o.value !== '.') // 결측 제외 또는 null 처리
+    .filter((o) => o.value !== '.')
     .map((o) => ({
       series_id: seriesId,
-      date: o.date,           // YYYY-MM-DD (FRED는 해당 월 1일)
-      value: o.value === '.' ? null : parseFloat(o.value),
+      date:  o.date,
+      value: parseFloat(o.value),
     }))
 
-  const CHUNK = 500
-  for (let i = 0; i < rows.length; i += CHUNK) {
-    const chunk = rows.slice(i, i + CHUNK)
+  for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+    const chunk = rows.slice(i, i + CHUNK_SIZE)
     const { error } = await db.from('observation').upsert(chunk, {
       onConflict: 'series_id,date',
     })
     if (error) throw new Error(`observation upsert 실패: ${error.message}`)
   }
 
-  console.log(`✓ ${seriesId}: ${rows.length}건 적재 완료`)
+  return rows.length
 }
 
-async function main() {
-  for (const id of SERIES_IDS) {
-    console.log(`→ 적재 시작: ${id}`)
-    await ingestSeries(id)
+// ─── 시리즈 발견 ────────────────────────────────────────────────────────────────
+
+interface FailedSeries { id: string; reason: string }
+
+async function discoverSeriesIds(): Promise<string[]> {
+  console.log('[발견] FRED에서 PPI 시리즈 검색 중...')
+  const seen = new Set<string>()
+
+  for (const q of SEARCH_QUERIES) {
+    try {
+      const results = await fetchSeriesBySearch(q)
+      for (const s of results) seen.add(s.id)
+      console.log(`[발견] 검색("${q}"): ${results.length}건`)
+    } catch (e) {
+      console.error(`[발견] 검색 실패("${q}"): ${e}`)
+    }
+    await new Promise((r) => setTimeout(r, 300))
   }
-  console.log('전체 적재 완료')
+
+  for (const catId of PPI_CATEGORY_IDS) {
+    try {
+      const results = await fetchCategorySeriesIds(catId)
+      for (const s of results) seen.add(s.id)
+      console.log(`[발견] 카테고리(${catId}): ${results.length}건`)
+    } catch (e) {
+      console.error(`[발견] 카테고리 실패(${catId}): ${e}`)
+    }
+    await new Promise((r) => setTimeout(r, 300))
+  }
+
+  const ids = Array.from(seen).sort()
+  console.log(`[발견] 최종: ${ids.length}개 시리즈 (중복 제거 완료)`)
+  return ids
+}
+
+// ─── 적재 실행 ────────────────────────────────────────────────────────────────
+
+async function runIngest(ids: string[]): Promise<FailedSeries[]> {
+  const total = ids.length
+  const failed: FailedSeries[] = []
+  let ok = 0
+
+  for (let i = 0; i < total; i++) {
+    const id = ids[i]
+    const prefix = `[${String(i + 1).padStart(String(total).length, ' ')}/${total}]`
+    process.stdout.write(`${prefix} ${id} 적재 중...`)
+
+    try {
+      const count = await ingestSeries(id)
+      ok++
+      process.stdout.write(`\r${prefix} ${id} → ${count}건 완료\n`)
+    } catch (e) {
+      const reason = e instanceof Error ? e.message : String(e)
+      failed.push({ id, reason })
+      process.stdout.write(`\r${prefix} ${id} FAIL: ${reason}\n`)
+    }
+
+    // FRED 레이트 제한 보호 (연속 요청 사이 200ms)
+    if (i < total - 1) await new Promise((r) => setTimeout(r, 200))
+  }
+
+  console.log(`\n[완료] 성공: ${ok}건 / 실패: ${failed.length}건`)
+  return failed
+}
+
+// ─── 메인 ────────────────────────────────────────────────────────────────────
+
+async function main() {
+  const isRetry = process.argv.includes('--retry')
+
+  let ids: string[]
+
+  if (isRetry) {
+    // retry 모드: failed-series.json 에서 목록 읽기
+    if (!fs.existsSync(FAILED_FILE)) {
+      console.log('[retry] failed-series.json 없음 — 재시도할 항목이 없습니다.')
+      return
+    }
+    const raw = JSON.parse(fs.readFileSync(FAILED_FILE, 'utf-8')) as FailedSeries[]
+    if (!raw.length) {
+      console.log('[retry] 재시도할 실패 항목이 없습니다.')
+      return
+    }
+    ids = raw.map((f) => f.id)
+    console.log(`[retry] ${ids.length}개 시리즈 재시도`)
+  } else {
+    // 일반 모드: 자동 발견
+    ids = await discoverSeriesIds()
+  }
+
+  const failed = await runIngest(ids)
+
+  if (failed.length > 0) {
+    console.log('\n[실패 목록]')
+    for (const f of failed) console.log(`  - ${f.id}: ${f.reason}`)
+    fs.writeFileSync(FAILED_FILE, JSON.stringify(failed, null, 2), 'utf-8')
+    console.log(`\n[저장] 실패 목록 → ${FAILED_FILE}`)
+    console.log('[안내] 재시도: npm run ingest:retry')
+  } else {
+    // 성공 시 실패 파일 정리
+    if (fs.existsSync(FAILED_FILE)) fs.unlinkSync(FAILED_FILE)
+    console.log('[완료] 모든 시리즈 적재 성공')
+  }
 }
 
 main().catch((e) => {
