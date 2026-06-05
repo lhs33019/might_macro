@@ -244,10 +244,43 @@ CREATE POLICY "anon_read_observation" ON observation FOR SELECT USING (true);
 CREATE POLICY "anon_read_consensus"   ON consensus   FOR SELECT USING (true);
 ```
 
+#### Step 8 — 신규 객체 anon 권한 잠금 (⚠️ 필수)
+
+> **반드시 실행한다.** Supabase는 `public` 스키마의 새 테이블·함수·머티리얼라이즈드 뷰에
+> `anon`/`authenticated` 권한을 **기본 부여**한다. 배포 시 anon 키는 클라이언트 번들에서
+> 누구나 추출 가능하므로, Step 4~6에서 만든 `dashboard_insight`·RPC·뷰를 잠그지 않으면
+> 금전·데이터 피해 경로가 열린다 (예: `refresh_series_trend_mv()` 무제한 호출 → 컴퓨트 과금 폭증,
+> `dashboard_insight` anon DELETE/TRUNCATE → 데이터 파괴).
+>
+> 이 앱의 화면은 **전부 `SUPABASE_SERVICE_ROLE_KEY`(서버)로 DB를 읽으므로** anon 권한을
+> 회수해도 동작에 영향이 없다. anon 권한은 순수 공격 표면일 뿐이다.
+
+```sql
+-- (1) dashboard_insight: RLS 활성화 + 공개 읽기만, 쓰기는 service_role 전용
+ALTER TABLE dashboard_insight ENABLE ROW LEVEL SECURITY;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
+  ON dashboard_insight FROM anon, authenticated;
+CREATE POLICY "anon_read_dashboard_insight" ON dashboard_insight FOR SELECT USING (true);
+
+-- (2) RPC anon/authenticated 실행 차단 (적재는 service_role로 호출 → 영향 없음)
+REVOKE EXECUTE ON FUNCTION refresh_series_trend_mv()  FROM anon, authenticated, public;
+REVOKE EXECUTE ON FUNCTION get_series_latest_dates()  FROM anon, authenticated, public;
+
+-- (3) SECURITY DEFINER 함수 search_path 고정 (injection 방지)
+ALTER FUNCTION refresh_series_trend_mv() SET search_path = public, pg_temp;
+ALTER FUNCTION get_series_latest_dates() SET search_path = public, pg_temp;
+
+-- (4) 머티리얼라이즈드 뷰 API 직접 노출 차단 (화면은 service_role로 읽음)
+REVOKE SELECT ON series_trend_mv FROM anon, authenticated;
+```
+
+> 적용 후 Supabase 대시보드의 **Advisors > Security**(또는 데이터베이스 린터)에서
+> 경고가 0건인지 확인한다. 새 테이블·함수를 추가할 때마다 이 단계를 반복한다.
+
 > 전체 마이그레이션 SQL은 Supabase 프로젝트의 마이그레이션 이력
 > (`series_trend_metrics_function`, `series_trend_materialized_view`,
 > `series_trend_mv_add_ann3m_accel`, `create_dashboard_insight`,
-> `create_get_series_latest_dates_rpc`)에 보존되어 있다.
+> `create_get_series_latest_dates_rpc`, `lock_down_public_anon_access`)에 보존되어 있다.
 
 ### 2-3. FRED 데이터 적재
 
