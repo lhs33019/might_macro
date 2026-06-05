@@ -2,7 +2,7 @@
 // 공식 출처: CLAUDE.md §8
 
 import type { Observation } from '@/lib/supabase/types'
-import type { SeriesTag, TrendMetrics, TrendResult } from '@/lib/types'
+import type { SeriesTag, TrendMetrics, TrendResult, ContributionItem } from '@/lib/types'
 
 /** MoM(%) = (value_t / value_{t-1} - 1) * 100 */
 export function calcMoM(current: number, prev: number): number {
@@ -30,6 +30,23 @@ export function calcAnnualized3M(latest: number, prev3m: number): number {
 }
 
 /**
+ * 부문 기여도 분해 (%p) = 상대중요도 × 부문 MoM
+ * 헤드라인(예: Final Demand) MoM을 구성 부문의 기여로 나눈다.
+ * mom이 없는(null) 부문은 제외한다. (순수 함수)
+ */
+export interface ContributionInput {
+  key: string
+  label: string
+  weight: number          // 상대중요도 (0~1)
+  mom: number | null
+}
+export function calcContribution(inputs: ContributionInput[]): ContributionItem[] {
+  return inputs
+    .filter((i): i is ContributionInput & { mom: number } => i.mom != null)
+    .map((i) => ({ key: i.key, label: i.label, value: i.weight * i.mom }))
+}
+
+/**
  * 실질 가속도 (%p) = Annualized 3M − YoY
  * 단기 모멘텀(3M 연율)이 12개월 추세(YoY)를 추월(+)/하회(−)하는 폭.
  * 양수면 최근 물가가 연간 추세보다 뜨겁다 → 가속, 음수면 둔화.
@@ -37,69 +54,6 @@ export function calcAnnualized3M(latest: number, prev3m: number): number {
  */
 export function calcAccel3M(ann3m: number, yoy: number): number {
   return ann3m - yoy
-}
-
-export type InsightLabel =
-  | '예상 상회 (상방 서프라이즈)'
-  | '예상 부합'
-  | '예상 하회 (하방 서프라이즈)'
-  | '가속 지속'
-  | '둔화 지속'
-  | '전년비 재가속'
-  | '전년비 둔화'
-  | '12개월 내 최고'
-  | '12개월 내 최저'
-  | '근원 물가 압력 잔존'
-  | null
-
-interface InsightInput {
-  currentYoy: number
-  prevYoy: number
-  recentMoMs: number[]       // 최신순 [t, t-1, t-2, ...]
-  last12Yoys: number[]       // 최근 12개월 YoY
-  consensusYoy?: number | null
-  coreYoy?: number | null    // R5용
-  headlineYoy?: number | null // R5용
-}
-
-// PRD §6.3 R1~R5 규칙 세트 — 우선순위 높은 순
-export function calcInsight(input: InsightInput): InsightLabel {
-  const { currentYoy, prevYoy, recentMoMs, last12Yoys, consensusYoy, coreYoy, headlineYoy } =
-    input
-
-  // R1 서프라이즈 (컨센서스 있을 때만)
-  if (consensusYoy != null) {
-    const surprise = calcSurprise(currentYoy, consensusYoy)
-    if (surprise >= 0.2) return '예상 상회 (상방 서프라이즈)'
-    if (surprise <= -0.2) return '예상 하회 (하방 서프라이즈)'
-    return '예상 부합'
-  }
-
-  // R2 모멘텀 (최근 3개월 MoM)
-  if (recentMoMs.length >= 3) {
-    const [m0, m1, m2] = recentMoMs
-    if (m0 > 0 && m1 > 0 && m2 > 0) return '가속 지속'
-    if (m0 < 0 && m1 < 0 && m2 < 0) return '둔화 지속'
-  }
-
-  // R3 방향전환
-  if (currentYoy > prevYoy) return '전년비 재가속'
-  if (currentYoy < prevYoy) return '전년비 둔화'
-
-  // R4 레벨 (12개월 윈도우)
-  if (last12Yoys.length > 0) {
-    const max = Math.max(...last12Yoys)
-    const min = Math.min(...last12Yoys)
-    if (currentYoy >= max) return '12개월 내 최고'
-    if (currentYoy <= min) return '12개월 내 최저'
-  }
-
-  // R5 헤드라인 vs 코어
-  if (headlineYoy != null && coreYoy != null) {
-    if (headlineYoy < prevYoy && coreYoy > prevYoy) return '근원 물가 압력 잔존'
-  }
-
-  return null
 }
 
 // ─────────────────────────────────────────────

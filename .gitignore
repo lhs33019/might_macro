@@ -30,6 +30,9 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
+# ingest 재시도 마커 (적재 성공 시 자동 삭제되는 산출물)
+failed-series.json
+
 # env files
 .env*
 !.env.local.example

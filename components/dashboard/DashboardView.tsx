@@ -3,15 +3,17 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
-import { Download, LayoutGrid } from 'lucide-react'
+import { LayoutGrid } from 'lucide-react'
 import { KpiCard } from '@/components/KpiCard'
 import { Segmented, Toggle } from '@/components/controls'
 import { Card, Legend } from '@/components/Card'
 import { LineChart, LineChartSkeleton, type ChartPoint } from '@/components/charts/LineChart'
 import { Heatmap } from '@/components/charts/Heatmap'
+import { ContributionBars } from '@/components/charts/ContributionBars'
 import { InsightBanner } from './InsightBanner'
 import { SectorAnn3mBars } from './SectorAnn3mBars'
-import { calcAnnualized3M } from '@/lib/analytics'
+import { calcAnnualized3M, calcContribution } from '@/lib/analytics'
+import { FD_RELATIVE_IMPORTANCE } from '@/lib/config/weights'
 import { isApiError } from '@/lib/types'
 import type {
   DashboardResponse,
@@ -53,7 +55,7 @@ interface DashboardViewProps {
 
 export function DashboardView({ data }: DashboardViewProps) {
   const isMobile = useIsMobile()
-  const { headline, sectorAnn3m, heatmap, insight, refDate } = data
+  const { headline, sectorAnn3m, heatmap, insight, refDate, nextRelease } = data
 
   // 추세 차트 — 선택된 헤드라인 시리즈 + 모드
   const [selectedId, setSelectedId] = useState<string>(headline[0]?.seriesId ?? 'PPIACO')
@@ -90,6 +92,8 @@ export function DashboardView({ data }: DashboardViewProps) {
   const n = PERIODS.find((p) => p.v === period)!.n
 
   // 모드별 차트 포인트 (ann3m는 관측값에서 롤링 3M SAAR 계산)
+  // YoY 모드 + 선택 시리즈가 기준월 컨센서스를 가지면 최신 월에 컨센서스 마커를 얹는다.
+  const consensusYoy = mode === 'yoy' ? (selectedMeta?.consensusYoy ?? null) : null
   const chartPoints = useMemo<ChartPoint[]>(() => {
     if (!obs) return []
     const items = obs.data
@@ -106,8 +110,14 @@ export function DashboardView({ data }: DashboardViewProps) {
       const d = new Date(o.date)
       return { date: o.date, y: d.getFullYear(), m: d.getMonth() + 1, index: o.value ?? 0, value, consensus: null }
     })
-    return computed.slice(Math.max(0, computed.length - n)).filter((p) => p.value != null)
-  }, [obs, mode, n])
+    const sliced = computed.slice(Math.max(0, computed.length - n)).filter((p) => p.value != null)
+    // 컨센서스 마커 — 최신(마지막) 포인트에만
+    if (consensusYoy != null && sliced.length > 0) {
+      const last = sliced[sliced.length - 1]
+      sliced[sliced.length - 1] = { ...last, consensus: consensusYoy }
+    }
+    return sliced
+  }, [obs, mode, n, consensusYoy])
 
   // 히트맵 — 8개 시리즈의 셀을 공통 월축으로 정규화
   const { heatRows, heatMonths } = useMemo(() => {
@@ -125,8 +135,22 @@ export function DashboardView({ data }: DashboardViewProps) {
     return { heatRows: rows, heatMonths: months }
   }, [heatmap])
 
+  // Final Demand MoM 부문 기여도 분해 (BLS 상대중요도 가중 — 재화·서비스, 둘 다 NSA로 계열 일치)
+  const fdContribution = useMemo(() => {
+    const momBy = new Map(headline.map((h) => [h.seriesId, h.mom]))
+    return calcContribution(
+      FD_RELATIVE_IMPORTANCE.components.map((c) => ({
+        key: c.key, label: c.label, weight: c.weight, mom: momBy.get(c.seriesId) ?? null,
+      })),
+    )
+  }, [headline])
+  const fdContribTotal = fdContribution.reduce((s, c) => s + c.value, 0)
+
   const modeLabel = mode === 'ann3m' ? 'Annualized 3M' : mode === 'mom' ? '전월비(MoM)' : '전년동월비(YoY)'
   const refMonth = refDate ? refDate.slice(0, 7).replace('-', '. ') : '—'
+  const releaseLabel = nextRelease
+    ? `${nextRelease.date.slice(5, 10).replace('-', '.')} · ${nextRelease.dDay === 0 ? '오늘' : `D-${nextRelease.dDay}`}`
+    : null
 
   const handleSelectSeries = useCallback((id: string) => setSelectedId(id), [])
 
@@ -149,14 +173,17 @@ export function DashboardView({ data }: DashboardViewProps) {
             <div className="t-label" style={{ marginBottom: 3 }}>기준월</div>
             <div className="t-data" style={{ fontSize: 13 }}>{refMonth}</div>
           </div>
+          {releaseLabel && (
+            <div style={{ textAlign: 'right' }}>
+              <div className="t-label" style={{ marginBottom: 3 }}>다음 발표</div>
+              <div className="t-data" style={{ fontSize: 13, color: 'var(--accent)' }}>{releaseLabel}</div>
+            </div>
+          )}
           <Link href="/series" style={{ textDecoration: 'none' }}>
             <button className="nw-btn-ghost" aria-label="시리즈 탐색">
               <LayoutGrid size={16} /> 시리즈 탐색
             </button>
           </Link>
-          <button className="nw-btn-ghost" aria-label="내보내기">
-            <Download size={16} /> 내보내기
-          </button>
         </div>
       </header>
 
@@ -179,6 +206,9 @@ export function DashboardView({ data }: DashboardViewProps) {
                 ? `실질가속 ${(k.accel3m >= 0 ? '+' : '') + k.accel3m.toFixed(1)}%p`
                 : undefined
             }
+            surprise={k.surprise}
+            consensusYoy={k.consensusYoy}
+            consensusSource={k.consensusSource}
             foot={`${k.seriesId} · YoY ${fmtPct(k.yoy)}% · MoM ${fmtPct(k.mom)}%${k.seasonalAdj === 'NSA' ? ' · NSA(계절성주의)' : ''}`}
           />
         ))}
@@ -224,11 +254,14 @@ export function DashboardView({ data }: DashboardViewProps) {
               선택 기간 내 데이터 없음
             </div>
           ) : (
-            <LineChart points={chartPoints} unit="%" isMobile={isMobile} />
+            <LineChart points={chartPoints} unit="%" isMobile={isMobile} showConsensus={consensusYoy != null} />
           )}
 
           <div style={{ display: 'flex', gap: 18, marginTop: 14, flexWrap: 'wrap', alignItems: 'center' }}>
             <Legend color="var(--accent)" label={modeLabel} line />
+            {consensusYoy != null && (
+              <Legend color="var(--flat)" label={`컨센서스 YoY ${consensusYoy.toFixed(1)}%`} />
+            )}
             {selectedMeta?.seasonalAdj === 'NSA' && mode === 'ann3m' && (
               <span className="t-caption" style={{ marginLeft: 'auto' }}>
                 * NSA 계열 — Annualized 3M에 계절성 포함
@@ -260,6 +293,26 @@ export function DashboardView({ data }: DashboardViewProps) {
         >
           <Heatmap rows={heatRows} months={heatMonths} />
         </Card>
+
+        {/* final demand contribution decomposition (NSA, 재화·서비스) */}
+        {fdContribution.length > 0 && (
+          <Card
+            eyebrow="최종수요 기여 분해"
+            title="부문별 MoM 기여도"
+            style={{ gridColumn: isMobile ? 'auto' : '1 / 3' }}
+            right={<span className="t-caption">기여도 = 상대중요도 × MoM · %p</span>}
+          >
+            <ContributionBars items={fdContribution} />
+            <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--border-subtle)', display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+              <span className="t-caption">
+                BLS 상대중요도 {FD_RELATIVE_IMPORTANCE.asOf}년 기준(근사) · NSA(계절성 포함) · 재화·서비스(FD의 약 98%, 건설 제외)
+              </span>
+              <span className="t-caption" style={{ marginLeft: 'auto', fontFamily: 'var(--num)', fontFeatureSettings: '"tnum" 1' }}>
+                기여 합계 {(fdContribTotal >= 0 ? '+' : '') + fdContribTotal.toFixed(2)}%p
+              </span>
+            </div>
+          </Card>
+        )}
       </div>
 
       {/* ── FOOTER ── */}

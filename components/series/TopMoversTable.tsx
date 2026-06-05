@@ -22,7 +22,7 @@ function ValCell({ value, direction }: { value: number; direction: TopMover['dir
   )
 }
 
-export function TopMoversTable({ title, rows, metric: _metric }: TopMoversTableProps) {
+export function TopMoversTable({ title, rows }: TopMoversTableProps) {
   return (
     <div className="nw-card" style={{ padding: '16px 18px' }}>
       <div className="t-label" style={{ marginBottom: 10 }}>{title}</div>

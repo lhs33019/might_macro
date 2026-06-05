@@ -22,6 +22,8 @@ import {
   fetchObservations,
   fetchCategoryChildren,
   fetchCategorySeriesIds,
+  fetchReleaseDates,
+  PPI_RELEASE_ID,
 } from '../lib/fred/client'
 import { HEADLINE_SERIES, HEADLINE_IDS, CORE_REFERENCE_SERIES } from '../lib/config/headline'
 import { generateInsight, type InsightMetricInput } from '../lib/insight/generate'
@@ -314,6 +316,49 @@ async function generateAndStoreInsight(): Promise<void> {
   }
 }
 
+// ─── 발표 일정 갱신 ──────────────────────────────────────────────────────────
+
+/**
+ * FRED release/dates(PPI=46)에서 다음/직전 발표일을 받아 release_schedule에 upsert한다.
+ * 화면은 이 저장값만 읽어 D-day를 표기한다(런타임 FRED 호출 금지 원칙).
+ * 실패해도 적재 자체는 성공이므로 경고만 남기고 진행한다.
+ */
+async function updateReleaseSchedule(): Promise<void> {
+  const db = getSupabase()
+  process.stdout.write('[발표일정] FRED release/dates 조회 중...')
+  try {
+    const iso = (d: Date) => d.toISOString().slice(0, 10)
+    const now = new Date()
+    const start = iso(new Date(now.getTime() - 60 * 864e5))
+    const end = iso(new Date(now.getTime() + 200 * 864e5))
+    const dates = await fetchReleaseDates(PPI_RELEASE_ID, { realtimeStart: start, realtimeEnd: end })
+
+    const todayStr = iso(now)
+    const nextDate = dates.find((d) => d >= todayStr) ?? null
+    const pastDates = dates.filter((d) => d < todayStr)
+    const lastDate = pastDates.length ? pastDates[pastDates.length - 1] : null
+
+    const { error } = await db.from('release_schedule').upsert(
+      {
+        release_id: PPI_RELEASE_ID,
+        release_name: 'Producer Price Index',
+        next_date: nextDate,
+        last_date: lastDate,
+        fetched_at: new Date().toISOString(),
+      },
+      { onConflict: 'release_id' },
+    )
+    if (error) {
+      process.stdout.write(`\r[발표일정] 저장 실패: ${error.message}\n`)
+      return
+    }
+    process.stdout.write(`\r[발표일정] 다음 발표 ${nextDate ?? '미정'} · 직전 ${lastDate ?? '—'}        \n`)
+  } catch (e) {
+    const reason = e instanceof Error ? e.message : String(e)
+    process.stdout.write(`\r[발표일정] 조회 실패: ${reason}\n`)
+  }
+}
+
 // ─── 메인 ────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -322,7 +367,7 @@ async function main() {
   const isIncremental = process.argv.includes('--incremental')
 
   let ids: string[]
-  let obsStartMap = new Map<string, string>()
+  const obsStartMap = new Map<string, string>()
 
   if (isRetry) {
     // retry 모드: failed-series.json 에서 목록 읽기
@@ -365,6 +410,9 @@ async function main() {
 
   // 적재된 새 데이터를 추세 지표 뷰에 반영 (화면 태그 최신화)
   await refreshTrendView()
+
+  // 다음 PPI 발표일 갱신 (화면 D-day 표기용, 실패해도 적재는 성공)
+  await updateReleaseSchedule()
 
   // 갱신된 헤드라인 지표로 AI 한줄평 생성·저장 (실패해도 적재는 성공)
   await generateAndStoreInsight()

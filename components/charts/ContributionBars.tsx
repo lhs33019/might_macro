@@ -1,6 +1,6 @@
 'use client'
 
-import { type ContributionItem } from '@/lib/data/dummy'
+import { type ContributionItem } from '@/lib/types'
 
 interface ContributionBarsProps {
   items: ContributionItem[]

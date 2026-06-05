@@ -10,6 +10,10 @@ interface KpiCardProps {
   deltaLabel?: string
   foot?: string
   loading?: boolean
+  // 시장 컨센서스 대비 서프라이즈 (있을 때만 표시, 출처 함께 노출)
+  surprise?: number | null
+  consensusYoy?: number | null
+  consensusSource?: string | null
 }
 
 export function KpiCardSkeleton() {
@@ -22,12 +26,20 @@ export function KpiCardSkeleton() {
   )
 }
 
-export function KpiCard({ label, sub, value, unit, dir, deltaDir, deltaLabel, foot, loading }: KpiCardProps) {
+export function KpiCard({
+  label, sub, value, unit, dir, deltaDir, deltaLabel, foot, loading,
+  surprise, consensusYoy, consensusSource,
+}: KpiCardProps) {
   if (loading) return <KpiCardSkeleton />
 
   const dd = deltaDir ?? dir
   const cls = dd === 'up' ? 'is-up' : dd === 'down' ? 'is-down' : 'is-flat'
   const tri = dd === 'up' ? '▲' : dd === 'down' ? '▼' : '—'
+
+  // 서프라이즈 (실측 YoY − 컨센서스): 양수=예상 상회, 음수=예상 하회
+  const hasSurprise = surprise != null
+  const sCls = !hasSurprise ? 'is-flat' : surprise > 0.02 ? 'is-up' : surprise < -0.02 ? 'is-down' : 'is-flat'
+  const sTri = !hasSurprise ? '—' : surprise > 0.02 ? '▲' : surprise < -0.02 ? '▼' : '—'
 
   return (
     <div className="nw-kpi" style={{ ['--rule' as string]: `var(--${dir})` }}>
@@ -54,6 +66,23 @@ export function KpiCard({ label, sub, value, unit, dir, deltaDir, deltaLabel, fo
         >
           <span>{tri} {deltaLabel}</span>
           <span style={{ color: 'var(--text-lo)', fontWeight: 500 }}>전월 대비</span>
+        </div>
+      )}
+      {hasSurprise && (
+        <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'baseline' }}>
+          <span
+            className={sCls}
+            style={{
+              fontFamily: 'var(--num)', fontWeight: 600, fontSize: 12.5,
+              fontFeatureSettings: '"tnum" 1',
+            }}
+          >
+            서프 {sTri} {(surprise! >= 0 ? '+' : '') + surprise!.toFixed(1)}%p
+          </span>
+          <span className="t-caption" style={{ color: 'var(--text-lo)' }}>
+            vs 컨센 {consensusYoy != null ? consensusYoy.toFixed(1) : '–'}%
+            {consensusSource ? ` · ${consensusSource}` : ''}
+          </span>
         </div>
       )}
       {foot && <div className="t-caption" style={{ marginTop: 8 }}>{foot}</div>}

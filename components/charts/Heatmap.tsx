@@ -1,6 +1,10 @@
 'use client'
 
-import { type HeatmapRow } from '@/lib/data/dummy'
+/** 히트맵 한 줄 — 라벨 + 월별 MoM 셀. 대시보드 쿼리 결과(DashboardHeatRow)와 동일 형태. */
+export interface HeatmapRow {
+  label: string
+  cells: Array<{ date: string; mom: number | null }>
+}
 
 interface HeatmapProps {
   rows: HeatmapRow[]

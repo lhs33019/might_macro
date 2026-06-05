@@ -12,7 +12,8 @@
     "ingest:retry": "node --env-file=.env.local --import tsx scripts/ingest.ts -- --retry",
     "ingest:headline": "node --env-file=.env.local --import tsx scripts/ingest.ts -- --headline-only",
     "ingest:incremental": "node --env-file=.env.local --import tsx scripts/ingest.ts -- --incremental",
-    "ingest:update": "node --env-file=.env.local --import tsx scripts/ingest.ts -- --headline-only --incremental"
+    "ingest:update": "node --env-file=.env.local --import tsx scripts/ingest.ts -- --headline-only --incremental",
+    "ingest:consensus": "node --env-file=.env.local --import tsx scripts/seed-consensus.ts"
   },
   "dependencies": {
     "@google/genai": "^2.8.0",

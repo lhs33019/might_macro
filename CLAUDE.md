@@ -35,9 +35,9 @@
 | M1 | ✅ 완료 | Next.js 15 스캐폴딩, 타입 계약, 폴더 구조 |
 | M1.5 | ✅ 완료 | **might Macro 디자인 시스템 구현** — 토큰, 폰트, 컴포넌트, 순수 SVG 차트, 더미 데이터 기반 인터랙티브 대시보드 |
 | M2 | ✅ 완료 | Supabase 테이블 생성 + `npm run ingest`로 FRED 실데이터 적재 (8,780+ 시리즈) |
-| M3 | 🟡 진행 | `lib/analytics/` 단위 테스트 (MoM·YoY·classifyTrend·Annualized 3M·실질가속도 — 19개 통과) |
-| M4 | 🟡 진행 | `app/api/` Route Handler 연결 — **메인 대시보드 실 DB 연결 완료**(`/api/dashboard`), 시리즈 탐색 완료. 더미는 dev fallback로 잔존 |
-| M5 | ⏳ 대기 | Vercel 배포 + 환경변수 설정 (ANTHROPIC_API_KEY 포함) |
+| M3 | ✅ 완료 | `lib/analytics/` 단위 테스트 (MoM·YoY·classifyTrend·Annualized 3M·실질가속도·기여도 — 21개 통과) |
+| M4 | ✅ 완료 | `app/api/` Route Handler 실 DB 연결 — 메인 대시보드(`/api/dashboard`)·시리즈 탐색 완료. **컨센서스·서프라이즈, 발표 캘린더(D-day), 부문 기여도 분해** 추가. 더미(`lib/data/dummy.ts`)는 제거됨(잔재 정리 완료) |
+| M5 | ⏳ 대기 | Vercel 배포 + 환경변수 설정 (GEMINI_API_KEY 포함) |
 
 **M2 시작 전 필요한 것**: `.env.local`에 FRED_API_KEY, Supabase 3개 키 입력 → README §2 참고.
 
@@ -80,17 +80,21 @@ PPI_inspire_dashboard/
 │  ├─ KpiCard.tsx       # KPI 카드 + InfoCard + 스켈레톤
 │  └─ controls.tsx      # Segmented, Toggle, CheckChip
 ├─ lib/
-│  ├─ data/
-│  │  └─ dummy.ts       # 합성 PPI 데이터 (M2 연결 전까지 사용)
+│  ├─ config/           # SSoT: headline.ts(헤드라인 8종), weights.ts(부문 기여도 상대중요도)
+│  ├─ queries/          # Supabase 조회 조립 (dashboard.ts, series.ts)
+│  ├─ insight/          # AI 한줄평 생성 (generate.ts, Gemini — 적재 시점 전용)
 │  ├─ supabase/         # 클라이언트(client.ts, server.ts) + DB 타입(types.ts)
 │  ├─ fred/             # FRED API 클라이언트 (수집 전용)
-│  ├─ analytics/        # MoM·YoY·서프라이즈 순수 함수 (M3에서 테스트 추가)
+│  ├─ analytics/        # MoM·YoY·서프라이즈·Annualized 3M·기여도 순수 함수 + 테스트
 │  └─ types.ts          # 프론트↔백 API 계약 (Frozen SSoT)
 ├─ public/
 │  ├─ fonts/            # BookkMyungjo_*.ttf, PretendardVariable.woff2
 │  └─ assets/           # ppi-logo.png, ppi-mark.png, mightmacro-*.png
 ├─ scripts/
-│  └─ ingest.ts         # FRED → Supabase 적재 (npx tsx scripts/ingest.ts)
+│  ├─ ingest.ts         # FRED → Supabase 적재 + 발표일정·AI 한줄평 갱신
+│  └─ seed-consensus.ts # data/consensus.seed.json → consensus 테이블 (수동 컨센서스)
+├─ data/
+│  └─ consensus.seed.json # 시장 컨센서스 수동 입력 시드 (출처 표기 필수)
 ├─ docs/
 │  ├─ PRD_v2.0.md
 │  └─ DESIGN_SYSTEM.md  # 디자인 토큰·컴포넌트·규칙 전체 — 디자인 작업 시 필독
@@ -99,7 +103,7 @@ PPI_inspire_dashboard/
 
 원칙:
 - `app` = 라우팅/페이지/서버 API, `components` = UI, `lib` = 로직, `public` = 정적 파일. 역할을 섞지 않는다.
-- `lib/data/dummy.ts`는 M2(Supabase 연결) 이후 `app/api/` Route Handler로 교체한다. 더미는 삭제하지 않고 `dev` 환경에서 fallback으로 유지한다.
+- 합성 더미(`lib/data/dummy.ts`)는 M4 실 DB 연결 완료 후 제거됨. 모든 화면 값은 Supabase 실데이터에서 온다(없으면 명시적 `null`/`—` 처리).
 
 ---
 
@@ -160,20 +164,28 @@ observation     -- 시리즈별 월간 관측값 (FRED 원본 보존)
   value         -- 지수값 (NULL 허용: FRED "." 결측 처리)
   (series_id, date) UNIQUE
 
-consensus       -- 시장 컨센서스(예상치) — FRED에 없으므로 수동 입력
+consensus       -- 시장 컨센서스(예상치) — FRED에 없으므로 수동 입력 (구현 완료)
   series_id     FK
   date          -- 해당 발표월 (관측 월 1일 기준)
   consensus_yoy -- 시장 예상 YoY (%, 수동 입력)
-  source            -- 출처 표기 필수 (예: Bloomberg, Reuters)
+  source            -- 출처 표기 필수 (예: Bloomberg, Reuters) — 화면에 그대로 노출
   note              -- 비고 (선택)
   (series_id, date) UNIQUE
+
+release_schedule -- FRED release 발표 일정 (PPI release_id=46) — 적재 시점 저장, 화면 D-day용
+  release_id    PK
+  release_name
+  next_date     -- 오늘 이후 가장 가까운 예정 발표일
+  last_date     -- 오늘 이전 가장 최근 발표일
+  fetched_at
 ```
 
 원칙:
 - **FRED 원본은 변형 없이 저장**한다. MoM·YoY 등 파생 지표는 저장하지 않고 조회 시 계산하거나 별도 뷰로 둔다.
 - 적재는 **과거 전체 → 현재**까지. `observation_start`를 비워 전체 이력을 받는다.
 - 재적재는 **upsert**(있으면 갱신, 없으면 삽입)로 멱등하게.
-- `consensus`는 FRED 적재 경로와 완전히 분리된 수동 입력이다. 값이 없으면 서프라이즈 칸은 `—`로 표기한다.
+- `consensus`는 FRED 적재 경로와 완전히 분리된 수동 입력이다. `data/consensus.seed.json` 편집 후 `npm run ingest:consensus`로 upsert한다. 서프라이즈 = 실측 YoY − 컨센서스 YoY이며, **기준월(latestDate)과 컨센서스 date가 일치할 때만** 계산한다. 값이 없으면 `—`로 표기하고, 있을 때는 `source`를 항상 화면에 노출한다(샘플/Demo를 진짜처럼 보이지 않게).
+- 부문 기여도는 동일 계열(NSA)인 재화·서비스만 BLS 상대중요도(`lib/config/weights.ts`)로 가중해 분해한다(SA/NSA 혼합 금지).
 
 ---
 
@@ -212,7 +224,15 @@ npm run lint       # ESLint 검사
 
 # 데이터 적재 (FRED → Supabase)
 # .env.local에 FRED_API_KEY, SUPABASE_* 입력 후 실행
-npm run ingest     # scripts/ingest.ts 실행 (과거 전체 → 현재)
+npm run ingest             # 전체 발견 → 적재 (과거 전체 → 현재)
+npm run ingest:update      # 헤드라인 9종 증분 + 발표일정 + AI 한줄평 (최속 갱신)
+npm run ingest:headline    # 헤드라인 9종만 (AI 한줄평 재생성)
+npm run ingest:incremental # 전체 발견 + 증분 수집
+npm run ingest:retry       # 직전 실패분만 재시도 (failed-series.json)
+npm run ingest:consensus   # data/consensus.seed.json → consensus 테이블 (수동 컨센서스)
+
+# 테스트
+npm test           # lib/analytics 순수 함수 단위 테스트 (node:test)
 
 # 환경변수 설정
 # .env.local.example 을 복사해 .env.local 만들고 키 입력

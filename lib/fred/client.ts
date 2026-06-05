@@ -45,6 +45,41 @@ export async function fetchObservations(
   return data.observations as FredObservation[]
 }
 
+/** FRED PPI 발표 release_id (Producer Price Index). /series/release?series_id=PPIACO 로 확인됨. */
+export const PPI_RELEASE_ID = 46
+
+export interface FredReleaseDate {
+  release_id: number
+  date: string // YYYY-MM-DD
+}
+
+/**
+ * FRED /release/dates — 특정 release의 발표일 목록(과거 + 예정).
+ * include_release_dates_with_no_data=true 로 아직 데이터 없는 예정일도 포함한다.
+ * realtime 윈도우를 좁히면 최근 과거~가까운 미래만 받아 가볍게 쓸 수 있다.
+ * 반환: 오름차순 날짜 문자열 배열.
+ */
+export async function fetchReleaseDates(
+  releaseId: number,
+  opts: { realtimeStart?: string; realtimeEnd?: string } = {},
+): Promise<string[]> {
+  const params = new URLSearchParams({
+    release_id: String(releaseId),
+    api_key: apiKey(),
+    file_type: 'json',
+    include_release_dates_with_no_data: 'true',
+    sort_order: 'asc',
+  })
+  if (opts.realtimeStart) params.set('realtime_start', opts.realtimeStart)
+  if (opts.realtimeEnd) params.set('realtime_end', opts.realtimeEnd)
+
+  const url = `${FRED_BASE}/release/dates?${params.toString()}`
+  const res = await fetch(url)
+  if (!res.ok) throw new Error(`FRED release/dates 실패: release_id=${releaseId} (${res.status})`)
+  const data = await res.json()
+  return ((data.release_dates ?? []) as FredReleaseDate[]).map((d) => d.date)
+}
+
 export interface FredCategory {
   id: number
   name: string

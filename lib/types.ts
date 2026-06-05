@@ -106,28 +106,6 @@ export interface SeriesListResponse {
 }
 
 // ─────────────────────────────────────────────
-// KpiItem — GET /api/kpi 의 개별 KPI 카드 데이터
-// ─────────────────────────────────────────────
-
-export interface KpiItem {
-  readonly seriesId: string
-  readonly title: string
-  readonly refDate: string         // 기준 발표월 (예: "2024-02-01")
-  readonly latestValue: number     // 최신 지수값 (원본)
-  readonly yoy: number | null      // 전년 동월 대비 (%)
-  readonly consensusYoy: number | null  // 시장 예상 YoY (%, 없으면 null)
-  readonly surprise: number | null      // 실측 YoY - 컨센서스 (없으면 null)
-  readonly insight: string | null  // InsightLabel — lib/analytics calcInsight 결과
-}
-
-export interface KpiListResponse {
-  readonly data: readonly KpiItem[]
-  readonly filter: {
-    readonly category: string | null
-  }
-}
-
-// ─────────────────────────────────────────────
 // ObservationItem — GET /api/series/{id}/observations
 // ─────────────────────────────────────────────
 
@@ -228,6 +206,10 @@ export interface HeadlineKpi {
   readonly accel3m: number | null   // 실질 가속도 = ann3m − yoy (%p)
   readonly deltaYoy: number | null  // 기존 ΔYoY(3m, %p)
   readonly tags: readonly SeriesTag[]
+  // 시장 컨센서스 대비 (consensus 테이블 — 기준월 일치 시에만)
+  readonly consensusYoy: number | null    // 시장 예상 YoY (%, 없으면 null)
+  readonly surprise: number | null         // 서프라이즈 = 실측 YoY − 컨센서스 (%p)
+  readonly consensusSource: string | null  // 컨센서스 출처 (정확성 표기 — 예: Bloomberg, Demo)
 }
 
 /** 히트맵 한 줄 (시리즈 × 최근 N개월 MoM) */
@@ -235,6 +217,14 @@ export interface DashboardHeatRow {
   readonly seriesId: string
   readonly label: string
   readonly cells: readonly { readonly date: string; readonly mom: number | null }[]
+}
+
+/** 부문 기여도 막대 1개 (Final Demand MoM = Σ weightᵢ × MoMᵢ 분해) */
+export interface ContributionItem {
+  readonly key: string
+  readonly label: string
+  readonly value: number          // 기여도(%p) = 상대중요도 × 부문 MoM
+  readonly color?: string         // 선택 — 미지정 시 부호(±)로 --up/--down
 }
 
 /** AI가 생성한 발표 해석 한줄평 */
@@ -245,11 +235,18 @@ export interface DashboardInsight {
   readonly generatedAt: string
 }
 
+/** 다음 PPI 발표 일정 (release_schedule 테이블 — 적재 시점 저장) */
+export interface NextRelease {
+  readonly date: string   // 예정 발표일 (YYYY-MM-DD)
+  readonly dDay: number   // 오늘 기준 남은 일수 (0 = 오늘 발표)
+}
+
 export interface DashboardResponse {
   readonly headline:    readonly HeadlineKpi[]      // 8개, HEADLINE_SERIES 순서
   readonly sectorAnn3m: readonly HeadlineKpi[]      // ann3m 내림차순(부문 랭킹 카드용)
   readonly heatmap:     readonly DashboardHeatRow[] // 8개 × 최근 8개월 MoM
   readonly insight:     DashboardInsight | null
+  readonly nextRelease: NextRelease | null           // 다음 발표 D-day (없으면 null)
   readonly refDate:     string | null               // 헤드라인 기준월
   readonly computedAt:  string
 }

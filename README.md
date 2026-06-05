@@ -212,6 +212,21 @@ CREATE TABLE IF NOT EXISTS dashboard_insight (
 COMMENT ON TABLE dashboard_insight IS 'AI 발표 해석 한줄평 — 적재 시점 생성, 화면은 읽기 전용';
 ```
 
+#### Step 5.5 — `release_schedule` 테이블 (발표 일정 — D-day)
+
+```sql
+-- FRED release/dates(PPI release_id=46)에서 받은 발표 일정. 화면 D-day 표기용.
+CREATE TABLE IF NOT EXISTS release_schedule (
+  release_id   INTEGER PRIMARY KEY,     -- FRED release_id (PPI = 46)
+  release_name TEXT NOT NULL,
+  next_date    DATE,                    -- 오늘 이후 가장 가까운 예정 발표일
+  last_date    DATE,                    -- 오늘 이전 가장 최근 발표일
+  fetched_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE release_schedule IS 'FRED release 발표 일정 — 적재 시점 저장, 화면 D-day용. anon 비노출';
+```
+
 #### Step 6 — RPC 함수 2개
 
 ```sql
@@ -272,6 +287,11 @@ ALTER FUNCTION get_series_latest_dates() SET search_path = public, pg_temp;
 
 -- (4) 머티리얼라이즈드 뷰 API 직접 노출 차단 (화면은 service_role로 읽음)
 REVOKE SELECT ON series_trend_mv FROM anon, authenticated;
+
+-- (5) release_schedule: RLS 활성 + anon/authenticated 권한 회수 (화면은 service_role로 읽음)
+ALTER TABLE release_schedule ENABLE ROW LEVEL SECURITY;
+REVOKE SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
+  ON release_schedule FROM anon, authenticated;
 ```
 
 > 적용 후 Supabase 대시보드의 **Advisors > Security**(또는 데이터베이스 린터)에서
@@ -293,10 +313,12 @@ REVOKE SELECT ON series_trend_mv FROM anon, authenticated;
 | `npm run ingest:headline` | 헤드라인 9개 | 전체 이력 | 수십 초 | 한줄평 재생성 |
 | `npm run ingest:update` | 헤드라인 9개 | 증분 | 수십 초 | **월간 최속 갱신** |
 | `npm run ingest:retry` | 이전 실패분 | 전체 이력 | 가변 | 실패 복구 |
+| `npm run ingest:consensus` | 컨센서스 | `data/consensus.seed.json` upsert | 즉시 | 시장 예상치 입력 (§2-4) |
 
-**공통 동작 (적재 종료 후 자동 실행)**:
+**공통 동작 (적재 종료 후 자동 실행 — consensus 제외)**:
 1. `series_trend_mv` 새로고침 → 화면 지표·태그 최신화
-2. `GEMINI_API_KEY`가 있으면 헤드라인 지표로 **AI 한줄평 1건 생성 → `dashboard_insight` 저장**
+2. **다음 PPI 발표일**(FRED release/dates, release_id=46) → `release_schedule` 저장 (화면 D-day)
+3. `GEMINI_API_KEY`가 있으면 헤드라인 지표로 **AI 한줄평 1건 생성 → `dashboard_insight` 저장**
    (키 없거나 실패해도 적재 자체는 성공 — 경고만 출력)
 
 #### 전체 적재 (처음 실행)
@@ -348,18 +370,25 @@ npm run ingest:retry
 
 ### 2-4. 컨센서스(예상치) 수동 입력
 
-컨센서스는 FRED에 없으므로 매월 발표 전 Bloomberg·Reuters 등에서 확인 후 입력:
+컨센서스는 FRED에 없으므로 매월 발표 전 Bloomberg·Reuters 등에서 확인 후 입력한다.
+권장 경로는 **시드 파일 편집 + 스크립트 upsert**다 (출처를 반드시 정확히 적는다 — 화면에 그대로 노출됨):
 
-```sql
-INSERT INTO consensus (series_id, date, consensus_yoy, source, note)
-VALUES ('PPIFIS', '2026-05-01', 2.3, 'Bloomberg', '2026년 5월 발표 사전 컨센서스')
-ON CONFLICT (series_id, date) DO UPDATE
-  SET consensus_yoy = EXCLUDED.consensus_yoy,
-      source        = EXCLUDED.source,
-      note          = EXCLUDED.note;
+```bash
+# 1) data/consensus.seed.json 편집 — series_id·date·consensus_yoy·source(필수)·note
+# 2) upsert 실행 (멱등)
+npm run ingest:consensus
 ```
 
-> 컨센서스 값이 없으면 서프라이즈 칸은 자동으로 `—`로 표기된다.
+`data/consensus.seed.json` 예시 (1건):
+
+```json
+{ "series_id": "PPIFIS", "date": "2026-05-01", "consensus_yoy": 2.3, "source": "Bloomberg", "note": "5월 발표 사전 컨센서스" }
+```
+
+> 직접 SQL `INSERT ... ON CONFLICT (series_id, date) DO UPDATE` 로 넣어도 된다.
+> 서프라이즈 = 실측 YoY − 컨센서스 YoY 이며, **기준월(시리즈 최신 관측월)과 `date`가 일치할 때만** 계산된다.
+> 컨센서스 값이 없거나 월이 어긋나면 서프라이즈 칸은 `—`로 표기되고, 있을 때는 `source`가 함께 노출된다.
+> 시드의 기본값은 `source: "Demo"` 샘플이므로 실제 컨센서스로 교체할 것.
 
 ### 2-5. 월간 유지보수 체크리스트
 
@@ -400,6 +429,7 @@ ON CONFLICT (series_id, date) DO UPDATE
 | 건설 | `PCU236400236400` | NSA | New Nonresidential Building Construction |
 
 각 카드: **주값 = Annualized 3M(%)**, 델타 = 실질 가속도(`accel3m`, ▲/▼ 글리프),
+컨센서스가 있으면 **서프라이즈 배지**(`서프 ▲/▼ ±N%p · vs 컨센 X% · 출처`),
 하단 = `series_id · YoY · MoM`. NSA 계열은 **계절성 주의** 캡션을 단다.
 
 > **정확성 주의**: Annualized 3M은 SA 계열에서 의미가 명확하다. NSA 계열은 계절성이 연율에 증폭되어
@@ -413,11 +443,23 @@ ON CONFLICT (series_id, date) DO UPDATE
 ### 3-4. 부문별 Annualized 3M 랭킹
 
 8개 헤드라인을 `ann3m` 내림차순 수평 막대로 표시. 양수(상승 모멘텀, warm)·음수(하락 모멘텀, cool).
-가중치 기여도 대신 **정직하게 산출 가능한 부문별 모멘텀**으로 구성했다.
+서로 다른 지수를 모멘텀 기준으로 줄 세운 **랭킹**이며(분해 아님), 정직하게 산출 가능한 부문별 모멘텀이다.
 
 ### 3-5. 헤드라인 변동률 히트맵
 
 8개 헤드라인 × 최근 8개월 MoM. 셀 색상 강도로 상승·하락 강도를 표현한다 (실데이터).
+
+### 3-6. 부문 기여도 분해 (Final Demand)
+
+정확히 분할되는 **최종수요 = 재화(`PPIFDG`) + 서비스(`PPIFDS`)** 만 BLS 상대중요도로 가중해
+MoM 기여도(`기여도 = 상대중요도 × MoM`, %p)를 좌우 발산 막대로 보여준다.
+가중치 SSoT는 [`lib/config/weights.ts`](lib/config/weights.ts)이며, 화면에 **"BLS 상대중요도 N년 기준(근사)"** 캡션을 단다.
+계열 일치를 위해 둘 다 NSA만 사용하고(SA/NSA 혼합 금지), 건설(~2%)은 제외해 "재화·서비스(FD의 약 98%)"로 표기한다.
+
+### 3-7. 다음 발표 D-day
+
+헤더에 **다음 PPI 발표일과 D-day**를 표기한다. 적재 시점에 FRED `release/dates`(release_id=46)에서 받아
+`release_schedule`에 저장한 값을 화면이 읽는다(런타임 FRED 호출 금지). 예정일이 없으면 표기를 생략한다.
 
 ---
 
@@ -507,9 +549,10 @@ accel3m(t) = Annualized 3M(t) − YoY(t)  [%p]
 #### 서프라이즈 · 코어 PPI
 
 ```
-Surprise = 실제 MoM - 컨센서스 MoM  [%p]   (컨센서스 입력월에만 표시, 없으면 —)
+Surprise = 실측 YoY − 컨센서스 YoY  [%p]   (기준월과 컨센서스 date 일치 시에만 표시, 없으면 —)
 ```
 
+- KPI 카드에 서프라이즈 배지(`서프 ▲/▼ ±N%p`)와 `vs 컨센 X% · 출처`를 함께 표기한다. YoY 추이 차트에는 최신 월에 컨센서스 마커가 찍힌다.
 - **+서프라이즈**: 예상보다 물가 상승 → 금리 인상 압력. **−서프라이즈**: 물가 둔화 → 인하 기대.
 - **코어 PPI(`PPIFES`)**: 식품·에너지 제외. 공급 충격 변동성을 걷어내 **구조적 인플레이션 압력**을 본다.
   AI 한줄평에서 헤드라인↔코어 비교에 사용한다.

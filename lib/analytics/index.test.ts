@@ -3,7 +3,7 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { calcMoM, calcYoY, classifyTrend, calcAnnualized3M, calcAccel3M } from './index'
+import { calcMoM, calcYoY, classifyTrend, calcAnnualized3M, calcAccel3M, calcContribution } from './index'
 import type { TrendMetrics } from '@/lib/types'
 
 // 모든 필드 null인 기본값에서 필요한 것만 덮어쓴다
@@ -42,6 +42,25 @@ test('calcAccel3M: ann3m > yoy → 양수(가속)', () => {
 })
 test('calcAccel3M: ann3m < yoy → 음수(둔화)', () => {
   assert.ok(near(calcAccel3M(0.35, 3.57), -3.22))
+})
+
+// ─── 부문 기여도 분해 ────────────────────────────────────────
+test('calcContribution: 가중치 × MoM', () => {
+  const r = calcContribution([
+    { key: 'goods',    label: '재화',   weight: 0.33, mom: 0.6 },
+    { key: 'services', label: '서비스', weight: 0.65, mom: 0.2 },
+  ])
+  assert.equal(r.length, 2)
+  assert.ok(near(r[0].value, 0.198))   // 0.33 * 0.6
+  assert.ok(near(r[1].value, 0.13))    // 0.65 * 0.2
+})
+test('calcContribution: mom이 null인 부문은 제외', () => {
+  const r = calcContribution([
+    { key: 'goods',    label: '재화',   weight: 0.33, mom: null },
+    { key: 'services', label: '서비스', weight: 0.65, mom: 0.2 },
+  ])
+  assert.equal(r.length, 1)
+  assert.equal(r[0].key, 'services')
 })
 
 // ─── classifyTrend 주 상태 ───────────────────────────────────

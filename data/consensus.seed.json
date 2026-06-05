@@ -1,0 +1,10 @@
+[
+  { "series_id": "PPIACO",          "date": "2026-04-01", "consensus_yoy": 10.1, "source": "Demo", "note": "샘플 데이터 — 실제 시장 컨센서스(Bloomberg/Reuters 등)로 교체할 것" },
+  { "series_id": "PPIFIS",          "date": "2026-04-01", "consensus_yoy": 5.6,  "source": "Demo", "note": "샘플 데이터 — 실제 시장 컨센서스(Bloomberg/Reuters 등)로 교체할 것" },
+  { "series_id": "PPIFDG",          "date": "2026-04-01", "consensus_yoy": 7.4,  "source": "Demo", "note": "샘플 데이터 — 실제 시장 컨센서스(Bloomberg/Reuters 등)로 교체할 것" },
+  { "series_id": "PPIFDS",          "date": "2026-04-01", "consensus_yoy": 5.3,  "source": "Demo", "note": "샘플 데이터 — 실제 시장 컨센서스(Bloomberg/Reuters 등)로 교체할 것" },
+  { "series_id": "WPSFD4121",       "date": "2026-04-01", "consensus_yoy": 17.5, "source": "Demo", "note": "샘플 데이터 — 실제 시장 컨센서스(Bloomberg/Reuters 등)로 교체할 것" },
+  { "series_id": "WPU01",           "date": "2026-04-01", "consensus_yoy": 4.9,  "source": "Demo", "note": "샘플 데이터 — 실제 시장 컨센서스(Bloomberg/Reuters 등)로 교체할 것" },
+  { "series_id": "PCU484484",       "date": "2026-04-01", "consensus_yoy": 13.8, "source": "Demo", "note": "샘플 데이터 — 실제 시장 컨센서스(Bloomberg/Reuters 등)로 교체할 것" },
+  { "series_id": "PCU236400236400", "date": "2026-04-01", "consensus_yoy": 3.5,  "source": "Demo", "note": "샘플 데이터 — 실제 시장 컨센서스(Bloomberg/Reuters 등)로 교체할 것" }
+]
