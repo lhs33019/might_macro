@@ -2,6 +2,7 @@
 // 공식 출처: CLAUDE.md §8
 
 import type { Observation } from '@/lib/supabase/types'
+import type { SeriesTag, TrendMetrics, TrendResult } from '@/lib/types'
 
 /** MoM(%) = (value_t / value_{t-1} - 1) * 100 */
 export function calcMoM(current: number, prev: number): number {
@@ -79,6 +80,69 @@ export function calcInsight(input: InsightInput): InsightLabel {
   }
 
   return null
+}
+
+// ─────────────────────────────────────────────
+// 추세 태그 분류 (시리즈 탐색 인사이트)
+// ─────────────────────────────────────────────
+//
+// 기준: YoY 중심.
+//  - 방향(상승/하락/횡보) = 최신 YoY 부호
+//  - 가속도(ΔYoY) = yoy - yoy3m → 가속/둔화/지속 판정
+//  - 보조: 추세반전(YoY 0선 교차·MoM 모멘텀 반전), 10년 최고/최저
+//
+// 임계값 (튜닝 가능)
+export const TREND_DIR_EPS = 0.1    // |YoY| < 0.1 → 방향 없음(횡보)
+export const TREND_ACCEL_EPS = 0.2  // |ΔYoY(3m)| < 0.2 → 가속/둔화 아님(지속)
+export const TREND_LEVEL_EPS = 0.05 // 10년 최고/최저 근접 허용 오차
+
+/**
+ * 시리즈 추세 지표 → 특징 태그 분류 (순수 함수).
+ * yoy가 없으면 분류 불가 → state=null, tags=[].
+ */
+export function classifyTrend(m: TrendMetrics): TrendResult {
+  const { yoy, yoy3m, yoy6m, mom, mom1m, mom2m, yoyMin10y, yoyMax10y } = m
+
+  // 데이터 부족
+  if (yoy == null) {
+    return { state: null, tags: [], deltaYoy: null }
+  }
+
+  // 가속도 (3개월 전 YoY가 없으면 '지속'으로 폴백)
+  const deltaYoy = yoy3m != null ? yoy - yoy3m : null
+
+  // 1. 주 상태 (방향 × 가속/둔화/지속)
+  let state: SeriesTag
+  if (yoy > TREND_DIR_EPS) {
+    // 상승: YoY가 더 커지면 가속, 작아지면 둔화
+    if (deltaYoy != null && deltaYoy > TREND_ACCEL_EPS) state = '상승가속'
+    else if (deltaYoy != null && deltaYoy < -TREND_ACCEL_EPS) state = '상승둔화'
+    else state = '상승지속'
+  } else if (yoy < -TREND_DIR_EPS) {
+    // 하락: YoY가 더 음수면 가속, 0쪽으로 회복하면 둔화
+    if (deltaYoy != null && deltaYoy < -TREND_ACCEL_EPS) state = '하락가속'
+    else if (deltaYoy != null && deltaYoy > TREND_ACCEL_EPS) state = '하락둔화'
+    else state = '하락지속'
+  } else {
+    state = '횡보'
+  }
+
+  const tags: SeriesTag[] = [state]
+
+  // 2. 추세반전 — YoY 0선 교차(6개월) 또는 MoM 3개월 모멘텀 반전
+  const yoyCross = yoy6m != null && yoy * yoy6m < 0
+  const momFlip =
+    mom != null && mom1m != null && mom2m != null &&
+    ((mom > 0 && mom1m < 0 && mom2m < 0) || (mom < 0 && mom1m > 0 && mom2m > 0))
+  if (yoyCross || momFlip) tags.push('추세반전')
+
+  // 3. 10년 레벨 — 최고/최저 근접 (범위 폭이 의미있을 때만)
+  const hasRange =
+    yoyMin10y != null && yoyMax10y != null && yoyMax10y - yoyMin10y > 0.5
+  if (hasRange && yoy >= yoyMax10y! - TREND_LEVEL_EPS) tags.push('10년최고')
+  else if (hasRange && yoy <= yoyMin10y! + TREND_LEVEL_EPS) tags.push('10년최저')
+
+  return { state, tags, deltaYoy }
 }
 
 /**

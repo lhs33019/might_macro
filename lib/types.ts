@@ -17,6 +17,38 @@
 
 export type SeasonalAdj = 'SA' | 'NSA'
 
+// ─────────────────────────────────────────────
+// 추세 인사이트 태그 (시리즈 탐색 고도화)
+// ─────────────────────────────────────────────
+
+/**
+ * 시리즈 가격 추이 특징 태그.
+ * 주 상태(상승/하락 × 가속/둔화/지속 + 횡보) + 보조(추세반전·10년최고·10년최저).
+ */
+export type SeriesTag =
+  | '상승가속' | '상승둔화' | '상승지속'
+  | '하락가속' | '하락둔화' | '하락지속'
+  | '횡보' | '추세반전' | '10년최고' | '10년최저'
+
+/** classifyTrend 입력 — DB series_trend_metrics() 행에서 매핑 */
+export interface TrendMetrics {
+  readonly yoy: number | null        // 최신 YoY (%)
+  readonly yoy3m: number | null      // 3개월 전 시점의 YoY (%)
+  readonly yoy6m: number | null      // 6개월 전 시점의 YoY (%)
+  readonly mom: number | null        // 최신 MoM (%)
+  readonly mom1m: number | null      // 1개월 전 MoM (%)
+  readonly mom2m: number | null      // 2개월 전 MoM (%)
+  readonly yoyMin10y: number | null  // 10년 윈도우 내 YoY 최소 (%)
+  readonly yoyMax10y: number | null  // 10년 윈도우 내 YoY 최대 (%)
+}
+
+/** classifyTrend 출력 */
+export interface TrendResult {
+  readonly state: SeriesTag | null   // 주 상태 1개 (데이터 부족 시 null)
+  readonly tags: readonly SeriesTag[] // 주 상태 + 보조 태그
+  readonly deltaYoy: number | null   // 가속도 = yoy - yoy3m (%p)
+}
+
 /** 머신 리더블 에러 코드 — 프론트에서 분기 처리에 사용 */
 export type ApiErrorCode =
   | 'SERIES_NOT_FOUND'       // 요청한 series_id 없음
@@ -134,6 +166,12 @@ export interface SeriesWithStats {
   readonly latestValue: number | null
   readonly mom: number | null   // 최근 MoM (%)
   readonly yoy: number | null   // 최근 YoY (%)
+  // 추세 인사이트 (서버에서 classifyTrend로 사전 계산)
+  readonly tags: readonly SeriesTag[]    // 특징 태그
+  readonly trendState: SeriesTag | null  // 주 상태 1개
+  readonly deltaYoy: number | null       // ΔYoY(3m, %p)
+  readonly yoyMin10y: number | null      // 10년 YoY 최소 (%)
+  readonly yoyMax10y: number | null      // 10년 YoY 최대 (%)
 }
 
 // ─────────────────────────────────────────────

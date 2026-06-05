@@ -11,12 +11,21 @@ import type {
   SeriesFullListResponse,
   SeriesWithStats,
   ObservationListResponse,
+  SeriesTag,
 } from '@/lib/types'
+import { tagTone } from '@/components/series/TagChips'
 
 type Period  = '6M' | '1Y' | '3Y' | '5Y' | 'ALL'
 type ObsMode = 'mom' | 'yoy'
 
 const PAGE_SIZE = 20
+
+// 태그 필터 바 표시 순서
+const FILTER_TAGS: readonly SeriesTag[] = [
+  '상승가속', '상승둔화', '상승지속',
+  '하락가속', '하락둔화', '하락지속',
+  '횡보', '추세반전', '10년최고', '10년최저',
+]
 
 interface SeriesExplorerProps {
   initialData: SeriesFullListResponse | null
@@ -33,18 +42,41 @@ export function SeriesExplorer({ initialData }: SeriesExplorerProps) {
   const [period, setPeriod]       = useState<Period>('3Y')
   const [mode, setMode]           = useState<ObsMode>('mom')
   const [query, setQuery]         = useState('')
+  const [activeTags, setActiveTags] = useState<ReadonlySet<SeriesTag>>(() => new Set())
 
-  const allData = initialData?.data ?? []
+  const allData = useMemo(() => initialData?.data ?? [], [initialData])
   const movers  = initialData?.movers
 
-  // 검색 필터 (시리즈 ID 또는 이름 — 대소문자 무시)
+  // 태그별 시리즈 개수 (필터 바 카운트 표기용)
+  const tagCounts = useMemo<Record<string, number>>(() => {
+    const counts: Record<string, number> = {}
+    for (const s of allData) {
+      for (const t of s.tags) counts[t] = (counts[t] ?? 0) + 1
+    }
+    return counts
+  }, [allData])
+
+  // 검색어 + 태그 필터 (태그는 다중 선택 시 OR)
   const filtered = useMemo<readonly SeriesWithStats[]>(() => {
     const q = query.trim().toLowerCase()
-    if (!q) return allData
-    return allData.filter(
-      (s) => s.seriesId.toLowerCase().includes(q) || s.title.toLowerCase().includes(q),
-    )
-  }, [allData, query])
+    return allData.filter((s) => {
+      const matchQuery =
+        !q || s.seriesId.toLowerCase().includes(q) || s.title.toLowerCase().includes(q)
+      const matchTags =
+        activeTags.size === 0 || s.tags.some((t) => activeTags.has(t))
+      return matchQuery && matchTags
+    })
+  }, [allData, query, activeTags])
+
+  const handleToggleTag = useCallback((tag: SeriesTag) => {
+    setActiveTags((prev) => {
+      const next = new Set(prev)
+      if (next.has(tag)) next.delete(tag)
+      else next.add(tag)
+      return next
+    })
+    setPage(0) // 필터 변경 시 첫 페이지로
+  }, [])
 
   // 검색 결과 정렬 (클라이언트 — 전체 기준)
   const sorted = useMemo<SeriesWithStats[]>(() => {
@@ -193,6 +225,35 @@ export function SeriesExplorer({ initialData }: SeriesExplorerProps) {
           )}
         </div>
 
+        {/* ── 태그 필터 ── */}
+        <div className="nw-tag-filter">
+          <span className="t-label" style={{ marginRight: 4 }}>특징 필터</span>
+          {FILTER_TAGS.map((t) => {
+            const count = tagCounts[t] ?? 0
+            const on = activeTags.has(t)
+            return (
+              <button
+                key={t}
+                className={`nw-tag nw-tag--${tagTone(t)} nw-tag-btn${on ? ' is-active' : ''}`}
+                onClick={() => handleToggleTag(t)}
+                disabled={count === 0}
+                aria-pressed={on}
+              >
+                #{t}<span className="nw-tag-count">{count.toLocaleString()}</span>
+              </button>
+            )
+          })}
+          {activeTags.size > 0 && (
+            <button
+              className="nw-btn-ghost"
+              onClick={() => { setActiveTags(new Set()); setPage(0) }}
+              style={{ marginLeft: 4 }}
+            >
+              <X size={14} /> 필터 해제
+            </button>
+          )}
+        </div>
+
         <div className="nw-series-body">
           {/* 시리즈 목록 */}
           <div className="nw-card" style={{ minWidth: 0 }}>
@@ -223,6 +284,11 @@ export function SeriesExplorer({ initialData }: SeriesExplorerProps) {
               mode={mode}
               onModeChange={setMode}
               onClose={handleClose}
+              tags={selectedMeta?.tags ?? []}
+              latestYoy={selectedMeta?.yoy ?? null}
+              deltaYoy={selectedMeta?.deltaYoy ?? null}
+              yoyMin10y={selectedMeta?.yoyMin10y ?? null}
+              yoyMax10y={selectedMeta?.yoyMax10y ?? null}
             />
           )}
         </div>

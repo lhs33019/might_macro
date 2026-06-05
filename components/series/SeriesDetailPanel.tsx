@@ -4,7 +4,8 @@ import { useMemo } from 'react'
 import { X } from 'lucide-react'
 import { LineChart, LineChartSkeleton, type ChartPoint } from '@/components/charts/LineChart'
 import { Segmented, Toggle } from '@/components/controls'
-import type { ObservationItem } from '@/lib/types'
+import { TagChips } from './TagChips'
+import type { ObservationItem, SeriesTag } from '@/lib/types'
 
 type Period = '6M' | '1Y' | '3Y' | '5Y' | 'ALL'
 type ObsMode = 'mom' | 'yoy'
@@ -28,6 +29,17 @@ interface SeriesDetailPanelProps {
   mode: ObsMode
   onModeChange: (m: ObsMode) => void
   onClose: () => void
+  // 추세 인사이트 (목록에서 사전 계산된 값 전달)
+  tags: readonly SeriesTag[]
+  latestYoy: number | null
+  deltaYoy: number | null
+  yoyMin10y: number | null
+  yoyMax10y: number | null
+}
+
+function fmtPct(v: number | null): string {
+  if (v == null) return '—'
+  return (v > 0 ? '+' : '') + v.toFixed(2) + '%'
 }
 
 export function SeriesDetailPanel({
@@ -41,8 +53,17 @@ export function SeriesDetailPanel({
   mode,
   onModeChange,
   onClose,
+  tags,
+  latestYoy,
+  deltaYoy,
+  yoyMin10y,
+  yoyMax10y,
 }: SeriesDetailPanelProps) {
   const n = PERIODS.find((p) => p.v === period)!.n
+
+  // 가속도(ΔYoY) 방향 글리프
+  const accelDir = deltaYoy == null ? 'flat' : deltaYoy > 0.02 ? 'up' : deltaYoy < -0.02 ? 'down' : 'flat'
+  const accelGlyph = accelDir === 'up' ? '▲' : accelDir === 'down' ? '▼' : '—'
 
   const chartPoints = useMemo<ChartPoint[]>(() => {
     if (!observations) return []
@@ -70,8 +91,8 @@ export function SeriesDetailPanel({
           <div className="t-label" style={{ marginBottom: 3, color: 'var(--accent)' }}>
             {seriesId}
           </div>
-          <div className="t-title" style={{ fontSize: 14, lineHeight: 1.3 }}>
-            {seriesTitle.length > 55 ? seriesTitle.slice(0, 55) + '…' : seriesTitle}
+          <div className="t-title" style={{ fontSize: 14, lineHeight: 1.3, wordBreak: 'break-word' }}>
+            {seriesTitle}
           </div>
           <div className="t-caption" style={{ marginTop: 2 }}>{seriesUnits}</div>
         </div>
@@ -83,6 +104,31 @@ export function SeriesDetailPanel({
         >
           <X size={14} />
         </button>
+      </div>
+
+      {/* 트렌드 요약 — 태그 + ΔYoY + 10년 범위 (최근 10년 윈도우 기준) */}
+      <div className="nw-trend-summary">
+        <div style={{ marginBottom: 10 }}>
+          <TagChips tags={tags} />
+        </div>
+        <div className="nw-trend-stats">
+          <div>
+            <div className="t-label">최신 YoY</div>
+            <div className="nw-trend-num">{fmtPct(latestYoy)}</div>
+          </div>
+          <div>
+            <div className="t-label">가속도 ΔYoY·3M</div>
+            <div className={`nw-trend-num nw-val-${accelDir}`}>
+              {accelGlyph} {deltaYoy == null ? '—' : (deltaYoy > 0 ? '+' : '') + deltaYoy.toFixed(2) + '%p'}
+            </div>
+          </div>
+          <div>
+            <div className="t-label">10년 YoY 범위</div>
+            <div className="nw-trend-num" style={{ fontSize: 12 }}>
+              {fmtPct(yoyMin10y)} ~ {fmtPct(yoyMax10y)}
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* 컨트롤 */}

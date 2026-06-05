@@ -174,6 +174,25 @@ async function runIngest(ids: string[]): Promise<FailedSeries[]> {
   return failed
 }
 
+// ─── 추세 지표 뷰 갱신 ──────────────────────────────────────────────────────────
+
+/**
+ * 적재된 새 데이터를 추세 지표(series_trend_mv)에 반영.
+ * 이 뷰는 자동 갱신되지 않으므로 적재 후 반드시 새로고침해야 화면 태그가 최신화된다.
+ * 실패해도 적재 자체는 성공이므로 경고만 남기고 진행한다.
+ */
+async function refreshTrendView(): Promise<void> {
+  const db = getSupabase()
+  process.stdout.write('[갱신] series_trend_mv 추세 지표 뷰 새로고침 중...')
+  const { error } = await db.rpc('refresh_series_trend_mv')
+  if (error) {
+    process.stdout.write(`\r[갱신] 실패: ${error.message}\n`)
+    console.warn('[안내] 수동 갱신: REFRESH MATERIALIZED VIEW CONCURRENTLY series_trend_mv;')
+  } else {
+    process.stdout.write('\r[갱신] series_trend_mv 새로고침 완료              \n')
+  }
+}
+
 // ─── 메인 ────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -200,6 +219,9 @@ async function main() {
   }
 
   const failed = await runIngest(ids)
+
+  // 적재된 새 데이터를 추세 지표 뷰에 반영 (화면 태그 최신화)
+  await refreshTrendView()
 
   if (failed.length > 0) {
     console.log('\n[실패 목록]')

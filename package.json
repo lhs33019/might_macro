@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "node --import tsx --test lib/analytics/*.test.ts",
     "ingest": "node --env-file=.env.local --import tsx scripts/ingest.ts",
     "ingest:retry": "node --env-file=.env.local --import tsx scripts/ingest.ts -- --retry"
   },

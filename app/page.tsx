@@ -128,7 +128,7 @@ export default function DashboardPage() {
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 14 }}>
           <div style={{ textAlign: 'right' }}>
-            <div className="t-label" style={{ marginBottom: 3 }}>최근 발표</div>
+            <div className="t-label" style={{ marginBottom: 3 }}>last update</div>
             <div className="t-data" style={{ fontSize: 13 }}>
               {D.release.date.replace(/-/g, '.')}
             </div>
