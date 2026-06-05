@@ -3,7 +3,7 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { calcMoM, calcYoY, classifyTrend } from './index'
+import { calcMoM, calcYoY, classifyTrend, calcAnnualized3M, calcAccel3M } from './index'
 import type { TrendMetrics } from '@/lib/types'
 
 // 모든 필드 null인 기본값에서 필요한 것만 덮어쓴다
@@ -23,6 +23,25 @@ test('calcMoM: 100 → 102 = +2%', () => {
 })
 test('calcYoY: 100 → 110 = +10%', () => {
   assert.ok(near(calcYoY(110, 100), 10))
+})
+
+// ─── Annualized 3M & 실질 가속도 ─────────────────────────────
+test('calcAnnualized3M: 3개월간 0% → 0%', () => {
+  assert.ok(near(calcAnnualized3M(100, 100), 0))
+})
+test('calcAnnualized3M: 3개월 +5% → 연율 약 +21.55%', () => {
+  // (1.05)^4 - 1 = 0.21550625
+  assert.ok(near(calcAnnualized3M(105, 100), 21.550625))
+})
+test('calcAnnualized3M: 3개월 -5% → 연율 약 -18.55%', () => {
+  // (0.95)^4 - 1 = -0.18549375
+  assert.ok(near(calcAnnualized3M(95, 100), -18.549375))
+})
+test('calcAccel3M: ann3m > yoy → 양수(가속)', () => {
+  assert.ok(near(calcAccel3M(11.09, 5.99), 5.1))
+})
+test('calcAccel3M: ann3m < yoy → 음수(둔화)', () => {
+  assert.ok(near(calcAccel3M(0.35, 3.57), -3.22))
 })
 
 // ─── classifyTrend 주 상태 ───────────────────────────────────

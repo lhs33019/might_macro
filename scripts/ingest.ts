@@ -2,13 +2,16 @@
  * FRED → Supabase 적재 스크립트
  * 실행: npm run ingest              (전체 발견 → 적재)
  *       npm run ingest:retry        (이전 실패분만 재시도)
+ *       npm run ingest:headline     (8개 헤드라인만, AI 한줄평 재생성 — 수십 초)
+ *       npm run ingest:incremental  (전체 발견 + 증분 수집 — 신규분만)
+ *       npm run ingest:update       (헤드라인 8개 + 증분 — 최속 갱신)
  *
- * 기능:
- *  - FRED /series/search 와 /category/series로 PPI 월간 시리즈 자동 발견
- *  - [n/total] 형식 진행상황 실시간 출력
- *  - 개별 시리즈 실패 시 오류 기록 후 나머지 계속 진행
- *  - 완료 후 실패 목록을 failed-series.json에 저장
- *  - --retry 플래그: failed-series.json의 목록만 재시도
+ * 플래그:
+ *  --headline-only : 헤드라인 9개만 수집 (카테고리 탐색 생략)
+ *  --incremental   : 각 시리즈의 DB 최신 날짜 이후만 수집 (리비전 보호: -3개월)
+ *  --retry         : failed-series.json 목록만 재시도 (증분 미적용)
+ *
+ * --headline-only + --incremental 조합 가능: 헤드라인 9개 증분 수집.
  */
 
 import * as fs from 'node:fs'
@@ -20,6 +23,8 @@ import {
   fetchCategoryChildren,
   fetchCategorySeriesIds,
 } from '../lib/fred/client'
+import { HEADLINE_SERIES, HEADLINE_IDS, CORE_REFERENCE_SERIES } from '../lib/config/headline'
+import { generateInsight, type InsightMetricInput } from '../lib/insight/generate'
 
 // ─── 설정 ────────────────────────────────────────────────────────────────────
 
@@ -38,6 +43,9 @@ const DISCOVER_DELAY_MS = 120
 const FAILED_FILE = path.join(process.cwd(), 'failed-series.json')
 const CHUNK_SIZE = 500   // observation upsert 청크 크기
 
+/** 증분 수집 시 DB 최신 날짜에서 몇 개월 전부터 재수집할지 (PPI 리비전 보호) */
+const INCREMENTAL_REVISION_BUFFER_MONTHS = 3
+
 // ─── Supabase 클라이언트 ──────────────────────────────────────────────────────
 
 function getSupabase() {
@@ -45,6 +53,15 @@ function getSupabase() {
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY
   if (!url || !key) throw new Error('Supabase 환경변수 누락 (NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)')
   return createClient(url, key)
+}
+
+// ─── 날짜 유틸 ────────────────────────────────────────────────────────────────
+
+/** YYYY-MM-DD 문자열에서 months 개월 전 날짜를 YYYY-MM-DD로 반환 */
+function subtractMonths(dateStr: string, months: number): string {
+  const d = new Date(dateStr + 'T00:00:00Z')
+  d.setUTCMonth(d.getUTCMonth() - months)
+  return d.toISOString().slice(0, 10)
 }
 
 // ─── 카테고리 자동 분류 ────────────────────────────────────────────────────────
@@ -62,30 +79,34 @@ function inferCategory(id: string, title: string): string {
 
 // ─── 시리즈 적재 ────────────────────────────────────────────────────────────────
 
-async function ingestSeries(seriesId: string): Promise<number> {
+/**
+ * 단일 시리즈를 FRED에서 수집해 Supabase에 upsert한다.
+ * observationStart 지정 시 해당 날짜 이후의 관측값만 수집 (증분 모드).
+ */
+async function ingestSeries(seriesId: string, observationStart?: string): Promise<number> {
   const db = getSupabase()
 
   // 1. 메타 upsert
   const meta = await fetchSeriesMeta(seriesId)
   const { error: seriesErr } = await db.from('series').upsert({
-    series_id:   meta.id,
-    title:       meta.title,
-    units:       meta.units,
-    frequency:   meta.frequency,
+    series_id:    meta.id,
+    title:        meta.title,
+    units:        meta.units,
+    frequency:    meta.frequency,
     seasonal_adj: meta.seasonal_adjustment.startsWith('Seasonally') ? 'SA' : 'NSA',
-    category:    inferCategory(meta.id, meta.title),
+    category:     inferCategory(meta.id, meta.title),
     last_updated: meta.last_updated,
   })
   if (seriesErr) throw new Error(`series upsert 실패: ${seriesErr.message}`)
 
-  // 2. 관측값 upsert (과거 전체, 500건 청크)
-  const observations = await fetchObservations(seriesId)
+  // 2. 관측값 upsert (전체 또는 observationStart 이후, 500건 청크)
+  const observations = await fetchObservations(seriesId, observationStart)
   const rows = observations
     .filter((o) => o.value !== '.')
     .map((o) => ({
       series_id: seriesId,
-      date:  o.date,
-      value: parseFloat(o.value),
+      date:      o.date,
+      value:     parseFloat(o.value),
     }))
 
   for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
@@ -139,14 +160,40 @@ async function discoverSeriesIds(): Promise<string[]> {
     )
   }
 
+  // 헤드라인 시드를 항상 포함 — 카테고리 트리에서 누락돼도 대시보드 지표는 보장
+  for (const id of HEADLINE_IDS) seen.add(id)
+  seen.add(CORE_REFERENCE_SERIES)
+
   const ids = Array.from(seen).sort()
-  console.log(`\n[발견] 최종: ${ids.length}개 시리즈 (카테고리 ${catCount}개, 중복 제거 완료)`)
+  console.log(`\n[발견] 최종: ${ids.length}개 시리즈 (카테고리 ${catCount}개, 헤드라인 시드 포함, 중복 제거 완료)`)
   return ids
+}
+
+// ─── 증분 수집: DB 최신 관측 날짜 일괄 조회 ──────────────────────────────────────
+
+/**
+ * 각 시리즈의 DB 최신 관측 날짜를 RPC로 일괄 조회한다.
+ * 실패 시 빈 Map 반환 → 전체 재수집으로 안전하게 fallback.
+ */
+async function fetchLatestObsDates(): Promise<Map<string, string>> {
+  const db = getSupabase()
+  const { data, error } = await db.rpc('get_series_latest_dates')
+  if (error) {
+    console.warn(`[증분] 최신 날짜 조회 실패: ${error.message} — 전체 재수집으로 전환`)
+    return new Map()
+  }
+  return new Map(
+    ((data ?? []) as { series_id: string; latest_date: string }[])
+      .map((r) => [r.series_id, r.latest_date]),
+  )
 }
 
 // ─── 적재 실행 ────────────────────────────────────────────────────────────────
 
-async function runIngest(ids: string[]): Promise<FailedSeries[]> {
+async function runIngest(
+  ids: string[],
+  obsStartMap = new Map<string, string>(),
+): Promise<FailedSeries[]> {
   const total = ids.length
   const failed: FailedSeries[] = []
   let ok = 0
@@ -154,10 +201,12 @@ async function runIngest(ids: string[]): Promise<FailedSeries[]> {
   for (let i = 0; i < total; i++) {
     const id = ids[i]
     const prefix = `[${String(i + 1).padStart(String(total).length, ' ')}/${total}]`
-    process.stdout.write(`${prefix} ${id} 적재 중...`)
+    const obsStart = obsStartMap.get(id)
+    const label = obsStart ? `(증분 ${obsStart}~) ` : ''
+    process.stdout.write(`${prefix} ${id} ${label}적재 중...`)
 
     try {
-      const count = await ingestSeries(id)
+      const count = await ingestSeries(id, obsStart)
       ok++
       process.stdout.write(`\r${prefix} ${id} → ${count}건 완료\n`)
     } catch (e) {
@@ -193,12 +242,87 @@ async function refreshTrendView(): Promise<void> {
   }
 }
 
+// ─── AI 한줄평 생성·저장 ────────────────────────────────────────────────────────
+
+/**
+ * 갱신된 series_trend_mv에서 8개 헤드라인 지표를 읽어 LLM 한줄평을 생성하고
+ * dashboard_insight에 upsert한다. 화면은 이 저장값만 읽는다(빠름 원칙).
+ * 키가 없거나 호출 실패해도 적재 자체는 성공이므로 경고만 남기고 진행한다.
+ */
+async function generateAndStoreInsight(): Promise<void> {
+  if (!process.env.GEMINI_API_KEY) {
+    console.warn('[한줄평] GEMINI_API_KEY 없음 — 생성 스킵')
+    return
+  }
+  const db = getSupabase()
+  process.stdout.write('[한줄평] 헤드라인 지표 수집 중...')
+
+  // 헤드라인 + 근원(PPIFES) 지표 일괄 조회
+  const ids = [...HEADLINE_IDS, CORE_REFERENCE_SERIES]
+  const { data: rows, error } = await db
+    .from('series_trend_mv')
+    .select('series_id, latest_date, yoy, mom, ann3m, accel3m')
+    .in('series_id', ids)
+  if (error) {
+    process.stdout.write(`\r[한줄평] 지표 조회 실패: ${error.message}\n`)
+    return
+  }
+
+  const byId = new Map((rows ?? []).map((r) => [r.series_id, r]))
+  const num = (v: number | string | null | undefined): number | null =>
+    v == null ? null : Number(v)
+
+  const headline: InsightMetricInput[] = HEADLINE_SERIES.map((def) => {
+    const r = byId.get(def.id)
+    return {
+      label:   def.label,
+      yoy:     num(r?.yoy),
+      mom:     num(r?.mom),
+      ann3m:   num(r?.ann3m),
+      accel3m: num(r?.accel3m),
+    }
+  })
+
+  // 기준월 = 헤드라인 중 가장 최신 관측월
+  const refDate = (rows ?? [])
+    .filter((r) => HEADLINE_IDS.includes(r.series_id) && r.latest_date)
+    .reduce<string | null>((mx, r) => (mx == null || r.latest_date > mx ? r.latest_date : mx), null)
+  if (!refDate) {
+    process.stdout.write('\r[한줄평] 기준월 산출 불가 — 스킵                 \n')
+    return
+  }
+  const coreYoy = num(byId.get(CORE_REFERENCE_SERIES)?.yoy)
+
+  process.stdout.write('\r[한줄평] LLM 생성 중...                          ')
+  try {
+    const { body, model } = await generateInsight({ refDate, headline, coreYoy })
+    const { error: upErr } = await db
+      .from('dashboard_insight')
+      .upsert(
+        { ref_date: refDate, body, model, metrics: { headline, coreYoy } },
+        { onConflict: 'ref_date' },
+      )
+    if (upErr) {
+      process.stdout.write(`\r[한줄평] 저장 실패: ${upErr.message}\n`)
+      return
+    }
+    process.stdout.write('\r[한줄평] 생성·저장 완료                          \n')
+    console.log(`  └ "${body}"`)
+  } catch (e) {
+    const reason = e instanceof Error ? e.message : String(e)
+    process.stdout.write(`\r[한줄평] 생성 실패: ${reason}\n`)
+  }
+}
+
 // ─── 메인 ────────────────────────────────────────────────────────────────────
 
 async function main() {
-  const isRetry = process.argv.includes('--retry')
+  const isRetry       = process.argv.includes('--retry')
+  const isHeadline    = process.argv.includes('--headline-only')
+  const isIncremental = process.argv.includes('--incremental')
 
   let ids: string[]
+  let obsStartMap = new Map<string, string>()
 
   if (isRetry) {
     // retry 모드: failed-series.json 에서 목록 읽기
@@ -213,15 +337,37 @@ async function main() {
     }
     ids = raw.map((f) => f.id)
     console.log(`[retry] ${ids.length}개 시리즈 재시도`)
+
+  } else if (isHeadline) {
+    // 헤드라인 전용 모드: 8개 헤드라인 + 코어 참조(PPIFES)만
+    ids = [...HEADLINE_IDS, CORE_REFERENCE_SERIES]
+    console.log(`[헤드라인] ${ids.length}개 시리즈만 수집 (카테고리 탐색 생략)`)
+
   } else {
     // 일반 모드: 자동 발견
     ids = await discoverSeriesIds()
   }
 
-  const failed = await runIngest(ids)
+  // 증분 모드: retry는 실패 재시도이므로 증분 미적용
+  if (isIncremental && !isRetry) {
+    console.log(`[증분] 기존 DB 데이터 이후 신규·갱신분만 수집합니다 (리비전 보호: -${INCREMENTAL_REVISION_BUFFER_MONTHS}개월)`)
+    const latestDates = await fetchLatestObsDates()
+    for (const id of ids) {
+      const latest = latestDates.get(id)
+      if (latest) obsStartMap.set(id, subtractMonths(latest, INCREMENTAL_REVISION_BUFFER_MONTHS))
+    }
+    const covered = obsStartMap.size
+    console.log(`  - ${covered}개 기존 시리즈: 최신 날짜 -${INCREMENTAL_REVISION_BUFFER_MONTHS}개월부터 수집`)
+    console.log(`  - ${ids.length - covered}개 신규 시리즈: 전체 이력 수집`)
+  }
+
+  const failed = await runIngest(ids, obsStartMap)
 
   // 적재된 새 데이터를 추세 지표 뷰에 반영 (화면 태그 최신화)
   await refreshTrendView()
+
+  // 갱신된 헤드라인 지표로 AI 한줄평 생성·저장 (실패해도 적재는 성공)
+  await generateAndStoreInsight()
 
   if (failed.length > 0) {
     console.log('\n[실패 목록]')

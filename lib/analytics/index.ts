@@ -19,6 +19,26 @@ export function calcSurprise(actualYoy: number, consensusYoy: number): number {
   return actualYoy - consensusYoy
 }
 
+/**
+ * Annualized 3M (3개월 연율화, 3M SAAR, %)
+ *   = ((value_t / value_{t-3})^(12/3) - 1) * 100 = ((latest/prev3m)^4 - 1) * 100
+ * 최근 3개월 모멘텀을 연율로 환산 — 시장이 추세 가속/둔화를 빠르게 읽는 핵심 지표.
+ * SA 계열에서 의미가 명확하며, NSA 계열은 계절성 주의.
+ */
+export function calcAnnualized3M(latest: number, prev3m: number): number {
+  return (Math.pow(latest / prev3m, 4) - 1) * 100
+}
+
+/**
+ * 실질 가속도 (%p) = Annualized 3M − YoY
+ * 단기 모멘텀(3M 연율)이 12개월 추세(YoY)를 추월(+)/하회(−)하는 폭.
+ * 양수면 최근 물가가 연간 추세보다 뜨겁다 → 가속, 음수면 둔화.
+ * (기존 ΔYoY = yoy − yoy3m 보다 전환점에 선행·민감 — 검증 완료)
+ */
+export function calcAccel3M(ann3m: number, yoy: number): number {
+  return ann3m - yoy
+}
+
 export type InsightLabel =
   | '예상 상회 (상방 서프라이즈)'
   | '예상 부합'

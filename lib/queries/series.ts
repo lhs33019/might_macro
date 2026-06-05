@@ -30,6 +30,8 @@ type TrendStatsRow = {
   mom_2m: number | string | null
   yoy_min_10y: number | string | null
   yoy_max_10y: number | string | null
+  ann3m: number | string | null
+  accel3m: number | string | null
 }
 
 // 데이터 프론티어 대비 이 개월 수 이상 뒤처지면 "끊긴 시리즈"로 보고 태그 제외
@@ -107,7 +109,7 @@ export async function fetchAllSeriesWithStats(): Promise<SeriesFullListResponse>
   const statsRaw = await fetchAllPaged<TrendStatsRow>(
     (from, to) => db
       .from('series_trend_mv')
-      .select('series_id, latest_date, latest_value, mom, yoy, yoy_3m, yoy_6m, mom_1m, mom_2m, yoy_min_10y, yoy_max_10y')
+      .select('series_id, latest_date, latest_value, mom, yoy, yoy_3m, yoy_6m, mom_1m, mom_2m, yoy_min_10y, yoy_max_10y, ann3m, accel3m')
       .order('series_id', { ascending: true })
       .range(from, to),
     'series_trend_mv',
@@ -122,6 +124,8 @@ export async function fetchAllSeriesWithStats(): Promise<SeriesFullListResponse>
     latestValue: number | null
     mom: number | null
     yoy: number | null
+    ann3m: number | null
+    accel3m: number | null
     tags: SeriesWithStats['tags']
     trendState: SeriesWithStats['trendState']
     deltaYoy: number | null
@@ -165,6 +169,8 @@ export async function fetchAllSeriesWithStats(): Promise<SeriesFullListResponse>
       latestValue: toNum(r.latest_value),
       mom:         metrics.mom,
       yoy:         metrics.yoy,
+      ann3m:       toNum(r.ann3m),
+      accel3m:     toNum(r.accel3m),
       tags:        trend.tags,
       trendState:  trend.state,
       deltaYoy:    trend.deltaYoy,
@@ -187,6 +193,8 @@ export async function fetchAllSeriesWithStats(): Promise<SeriesFullListResponse>
       latestValue: stats?.latestValue ?? null,
       mom:         stats?.mom ?? null,
       yoy:         stats?.yoy ?? null,
+      ann3m:       stats?.ann3m ?? null,
+      accel3m:     stats?.accel3m ?? null,
       tags:        stats?.tags ?? [],
       trendState:  stats?.trendState ?? null,
       deltaYoy:    stats?.deltaYoy ?? null,

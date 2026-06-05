@@ -31,10 +31,14 @@ export async function fetchSeriesMeta(seriesId: string): Promise<FredSeriesMeta>
   return data.seriess[0] as FredSeriesMeta
 }
 
-export async function fetchObservations(seriesId: string): Promise<FredObservation[]> {
-  const url =
+export async function fetchObservations(
+  seriesId: string,
+  observationStart?: string,
+): Promise<FredObservation[]> {
+  let url =
     `${FRED_BASE}/series/observations` +
     `?series_id=${seriesId}&api_key=${apiKey()}&file_type=json`
+  if (observationStart) url += `&observation_start=${observationStart}`
   const res = await fetch(url)
   if (!res.ok) throw new Error(`FRED observations 조회 실패: ${seriesId} (${res.status})`)
   const data = await res.json()

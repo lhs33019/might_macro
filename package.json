@@ -9,9 +9,13 @@
     "lint": "eslint",
     "test": "node --import tsx --test lib/analytics/*.test.ts",
     "ingest": "node --env-file=.env.local --import tsx scripts/ingest.ts",
-    "ingest:retry": "node --env-file=.env.local --import tsx scripts/ingest.ts -- --retry"
+    "ingest:retry": "node --env-file=.env.local --import tsx scripts/ingest.ts -- --retry",
+    "ingest:headline": "node --env-file=.env.local --import tsx scripts/ingest.ts -- --headline-only",
+    "ingest:incremental": "node --env-file=.env.local --import tsx scripts/ingest.ts -- --incremental",
+    "ingest:update": "node --env-file=.env.local --import tsx scripts/ingest.ts -- --headline-only --incremental"
   },
   "dependencies": {
+    "@google/genai": "^2.8.0",
     "@supabase/ssr": "^0.10.3",
     "@supabase/supabase-js": "^2.107.0",
     "claude": "^0.1.1",

@@ -35,6 +35,8 @@ interface SeriesDetailPanelProps {
   deltaYoy: number | null
   yoyMin10y: number | null
   yoyMax10y: number | null
+  ann3m: number | null
+  accel3m: number | null
 }
 
 function fmtPct(v: number | null): string {
@@ -58,12 +60,18 @@ export function SeriesDetailPanel({
   deltaYoy,
   yoyMin10y,
   yoyMax10y,
+  ann3m,
+  accel3m,
 }: SeriesDetailPanelProps) {
   const n = PERIODS.find((p) => p.v === period)!.n
 
   // 가속도(ΔYoY) 방향 글리프
   const accelDir = deltaYoy == null ? 'flat' : deltaYoy > 0.02 ? 'up' : deltaYoy < -0.02 ? 'down' : 'flat'
   const accelGlyph = accelDir === 'up' ? '▲' : accelDir === 'down' ? '▼' : '—'
+
+  // 실질 가속도(accel3m = ann3m − yoy) 방향 글리프
+  const realDir = accel3m == null ? 'flat' : accel3m > 0.02 ? 'up' : accel3m < -0.02 ? 'down' : 'flat'
+  const realGlyph = realDir === 'up' ? '▲' : realDir === 'down' ? '▼' : '—'
 
   const chartPoints = useMemo<ChartPoint[]>(() => {
     if (!observations) return []
@@ -115,6 +123,18 @@ export function SeriesDetailPanel({
           <div>
             <div className="t-label">최신 YoY</div>
             <div className="nw-trend-num">{fmtPct(latestYoy)}</div>
+          </div>
+          <div>
+            <div className="t-label">Annualized 3M</div>
+            <div className={`nw-trend-num nw-val-${ann3m == null ? 'flat' : ann3m > 0.02 ? 'up' : ann3m < -0.02 ? 'down' : 'flat'}`}>
+              {fmtPct(ann3m)}
+            </div>
+          </div>
+          <div>
+            <div className="t-label">실질가속도 3M−YoY</div>
+            <div className={`nw-trend-num nw-val-${realDir}`}>
+              {realGlyph} {accel3m == null ? '—' : (accel3m > 0 ? '+' : '') + accel3m.toFixed(2) + '%p'}
+            </div>
           </div>
           <div>
             <div className="t-label">가속도 ΔYoY·3M</div>

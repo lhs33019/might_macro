@@ -4,7 +4,7 @@ import { useState } from 'react'
 import type { SeriesWithStats } from '@/lib/types'
 import { TagChips } from './TagChips'
 
-export type SortKey = 'seriesId' | 'title' | 'category' | 'mom' | 'yoy'
+export type SortKey = 'seriesId' | 'title' | 'category' | 'mom' | 'yoy' | 'ann3m'
 export type SortDir = 'asc' | 'desc'
 
 type ColId = SortKey | 'tags'
@@ -27,8 +27,9 @@ const COLUMNS: { id: ColId; label: string; sortKey?: SortKey; min: number; initi
   { id: 'seriesId', label: 'Series ID', sortKey: 'seriesId', min: 90,  initial: 120 },
   { id: 'title',    label: '이름',      sortKey: 'title',    min: 140, initial: 300 },
   { id: 'tags',     label: '특징',                            min: 150, initial: 220 },
-  { id: 'mom',      label: 'MoM',       sortKey: 'mom',      min: 80,  initial: 110 },
-  { id: 'yoy',      label: 'YoY',       sortKey: 'yoy',      min: 80,  initial: 110 },
+  { id: 'mom',      label: 'MoM',       sortKey: 'mom',      min: 80,  initial: 100 },
+  { id: 'yoy',      label: 'YoY',       sortKey: 'yoy',      min: 80,  initial: 100 },
+  { id: 'ann3m',    label: '3M(연율)',  sortKey: 'ann3m',    min: 90,  initial: 120 },
   { id: 'category', label: '카테고리',  sortKey: 'category', min: 90,  initial: 120 },
 ]
 
@@ -109,6 +110,8 @@ export function SeriesTable({
         return <ValCell v={s.mom} />
       case 'yoy':
         return <ValCell v={s.yoy} />
+      case 'ann3m':
+        return <ValCell v={s.ann3m} />
       case 'category':
         return (
           <span style={{

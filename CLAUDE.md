@@ -34,10 +34,10 @@
 |----------|------|------|
 | M1 | ✅ 완료 | Next.js 15 스캐폴딩, 타입 계약, 폴더 구조 |
 | M1.5 | ✅ 완료 | **might Macro 디자인 시스템 구현** — 토큰, 폰트, 컴포넌트, 순수 SVG 차트, 더미 데이터 기반 인터랙티브 대시보드 |
-| M2 | ⏳ 대기 | Supabase 테이블 생성 + `npm run ingest`로 FRED 실데이터 적재 |
-| M3 | ⏳ 대기 | `lib/analytics/` 단위 테스트 |
-| M4 | ⏳ 대기 | `app/api/` Route Handler 연결 (더미 → 실 DB) |
-| M5 | ⏳ 대기 | Vercel 배포 + 환경변수 설정 |
+| M2 | ✅ 완료 | Supabase 테이블 생성 + `npm run ingest`로 FRED 실데이터 적재 (8,780+ 시리즈) |
+| M3 | 🟡 진행 | `lib/analytics/` 단위 테스트 (MoM·YoY·classifyTrend·Annualized 3M·실질가속도 — 19개 통과) |
+| M4 | 🟡 진행 | `app/api/` Route Handler 연결 — **메인 대시보드 실 DB 연결 완료**(`/api/dashboard`), 시리즈 탐색 완료. 더미는 dev fallback로 잔존 |
+| M5 | ⏳ 대기 | Vercel 배포 + 환경변수 설정 (ANTHROPIC_API_KEY 포함) |
 
 **M2 시작 전 필요한 것**: `.env.local`에 FRED_API_KEY, Supabase 3개 키 입력 → README §2 참고.
 
@@ -129,6 +129,21 @@ PPI 시리즈는 **광범위하게 수집**한다. 임의의 FRED 시리즈를 �
 
 > PPIFIS는 2009-11부터 시작하므로 차트에서 그 이전 구간은 PPIACO로 보강하고 "* 2009.11 이전은 Finished Goods 기준" 주석을 표기한다.
 
+**메인 대시보드 헤드라인 8종** (SSoT: `lib/config/headline.ts`, KPI·부문랭킹·히트맵·AI 한줄평 공통):
+
+| 지표 | series_id | basis | 비고 |
+|------|-----------|-------|------|
+| Headline PPI | `PPIACO` | NSA | All Commodities |
+| Core PPI | `PPIFIS` | SA | Final Demand (진짜 근원 `PPIFES`는 한줄평 비교용) |
+| Final Demand Goods | `PPIFDG` | NSA | |
+| Final Demand Services | `PPIFDS` | NSA | |
+| Energy | `WPSFD4121` | SA | Finished Consumer Energy Goods |
+| Food | `WPU01` | NSA | Farm Products |
+| Transportation | `PCU484484` | NSA | Truck Transportation |
+| Construction | `PCU236400236400` | NSA | New Nonresidential Building Construction |
+
+> NSA 계열의 Annualized 3M은 계절성이 섞이므로 화면에 SA/NSA를 표기하고 NSA에는 계절성 주의 캡션을 단다.
+
 ```
 series          -- 추적 대상 PPI 시리즈 메타
   series_id     PK  -- FRED series_id (대표: PPIACO / 예: PPIFIS, WPSFD4131 등)
@@ -179,6 +194,8 @@ consensus       -- 시장 컨센서스(예상치) — FRED에 없으므로 수�
 
 - **MoM (전월 대비, %)** = `(value_t / value_{t-1} - 1) * 100`
 - **YoY (전년 동월 대비, %)** = `(value_t / value_{t-12} - 1) * 100`
+- **Annualized 3M (3M SAAR, %)** = `((value_t / value_{t-3})^4 - 1) * 100` — 최근 3개월 모멘텀의 연율. 시장 중요도 높음. SA 계열에서 의미 명확(NSA는 계절성 주의). 대시보드 KPI 주지표.
+- **실질 가속도 (%p)** = `Annualized 3M − YoY` — 단기 모멘텀이 12개월 추세를 추월(+)/하회(−)하는 폭. 기존 ΔYoY(=yoy−yoy3m)보다 전환점에 선행·민감(검증 완료). 태그는 ΔYoY 유지, UI·한줄평은 실질 가속도 사용.
 - **Headline**: `PPIACO` (전체 PPI 지수, 기준 대표값) / **Core**: 식품·에너지 제외 지수
 - 기준연도·SA/NSA를 혼동하지 않는다. 같은 차트 안에서는 동일 계열(SA 또는 NSA)만 비교한다.
 - 수치 옆에는 항상 **기준(시리즈명·단위·기준연도·발표월)** 을 표기해 정확성을 드러낸다.
@@ -254,6 +271,7 @@ FRED_API_KEY=                   # FRED API 키 (https://fred.stlouisfed.org/docs
 NEXT_PUBLIC_SUPABASE_URL=       # Supabase 프로젝트 URL
 NEXT_PUBLIC_SUPABASE_ANON_KEY=  # Supabase anon 키 (클라이언트용)
 SUPABASE_SERVICE_ROLE_KEY=      # 서버/적재 전용 (절대 클라이언트 노출 금지)
+GEMINI_API_KEY=                 # AI 한줄평 생성 — Google AI Studio. 적재 시점만 사용, 서버/적재 전용, 절대 클라이언트 노출 금지
 ```
 
 ---

@@ -87,6 +87,7 @@ export function SeriesExplorer({ initialData }: SeriesExplorerProps) {
       else if (sortKey === 'title') { av = a.title; bv = b.title }
       else if (sortKey === 'category') { av = a.category; bv = b.category }
       else if (sortKey === 'mom') { av = a.mom; bv = b.mom }
+      else if (sortKey === 'ann3m') { av = a.ann3m; bv = b.ann3m }
       else { av = a.yoy; bv = b.yoy }
 
       // null은 항상 뒤로
@@ -289,6 +290,8 @@ export function SeriesExplorer({ initialData }: SeriesExplorerProps) {
               deltaYoy={selectedMeta?.deltaYoy ?? null}
               yoyMin10y={selectedMeta?.yoyMin10y ?? null}
               yoyMax10y={selectedMeta?.yoyMax10y ?? null}
+              ann3m={selectedMeta?.ann3m ?? null}
+              accel3m={selectedMeta?.accel3m ?? null}
             />
           )}
         </div>

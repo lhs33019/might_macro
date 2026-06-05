@@ -166,6 +166,8 @@ export interface SeriesWithStats {
   readonly latestValue: number | null
   readonly mom: number | null   // 최근 MoM (%)
   readonly yoy: number | null   // 최근 YoY (%)
+  readonly ann3m: number | null   // Annualized 3M (3M SAAR, %) — 최근 3개월 연율화
+  readonly accel3m: number | null // 실질 가속도 = ann3m − yoy (%p)
   // 추세 인사이트 (서버에서 classifyTrend로 사전 계산)
   readonly tags: readonly SeriesTag[]    // 특징 태그
   readonly trendState: SeriesTag | null  // 주 상태 1개
@@ -204,4 +206,50 @@ export interface SeriesFullListResponse {
   readonly movers:     TopMoversResponse
   readonly total:      number
   readonly computedAt: string
+}
+
+// ─────────────────────────────────────────────
+// 대시보드 (메인 화면) — GET /api/dashboard
+// 8개 헤드라인 KPI + Annualized 3M + 실질 가속도 + AI 한줄평
+// ─────────────────────────────────────────────
+
+/** 헤드라인 KPI 카드 1장 (Annualized 3M 중심) */
+export interface HeadlineKpi {
+  readonly seriesId: string
+  readonly label: string            // 표시명 ('헤드라인 PPI' 등)
+  readonly title: string            // FRED 풀네임
+  readonly units: string
+  readonly seasonalAdj: SeasonalAdj
+  readonly latestDate: string | null
+  readonly latestValue: number | null
+  readonly mom: number | null
+  readonly yoy: number | null
+  readonly ann3m: number | null     // 주지표: Annualized 3M (%)
+  readonly accel3m: number | null   // 실질 가속도 = ann3m − yoy (%p)
+  readonly deltaYoy: number | null  // 기존 ΔYoY(3m, %p)
+  readonly tags: readonly SeriesTag[]
+}
+
+/** 히트맵 한 줄 (시리즈 × 최근 N개월 MoM) */
+export interface DashboardHeatRow {
+  readonly seriesId: string
+  readonly label: string
+  readonly cells: readonly { readonly date: string; readonly mom: number | null }[]
+}
+
+/** AI가 생성한 발표 해석 한줄평 */
+export interface DashboardInsight {
+  readonly body: string
+  readonly model: string
+  readonly refDate: string
+  readonly generatedAt: string
+}
+
+export interface DashboardResponse {
+  readonly headline:    readonly HeadlineKpi[]      // 8개, HEADLINE_SERIES 순서
+  readonly sectorAnn3m: readonly HeadlineKpi[]      // ann3m 내림차순(부문 랭킹 카드용)
+  readonly heatmap:     readonly DashboardHeatRow[] // 8개 × 최근 8개월 MoM
+  readonly insight:     DashboardInsight | null
+  readonly refDate:     string | null               // 헤드라인 기준월
+  readonly computedAt:  string
 }
