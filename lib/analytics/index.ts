@@ -20,13 +20,50 @@ export function calcSurprise(actualYoy: number, consensusYoy: number): number {
 }
 
 /**
- * Annualized 3M (3개월 연율화, 3M SAAR, %)
- *   = ((value_t / value_{t-3})^(12/3) - 1) * 100 = ((latest/prev3m)^4 - 1) * 100
- * 최근 3개월 모멘텀을 연율로 환산 — 시장이 추세 가속/둔화를 빠르게 읽는 핵심 지표.
- * SA 계열에서 의미가 명확하며, NSA 계열은 계절성 주의.
+ * Annualized N개월 (연율화, SAAR, %)
+ *   = ((value_t / value_{t-N})^(12/N) - 1) * 100
+ * 최근 N개월 모멘텀을 연율로 환산. SA 계열에서 의미가 명확(NSA는 계절성 주의).
  */
+export function calcAnnualized(latest: number, prevN: number, months: number): number {
+  return (Math.pow(latest / prevN, 12 / months) - 1) * 100
+}
+
+/** Annualized 3M (3M SAAR, %) — calcAnnualized(months=3)의 별칭. 대시보드 주지표. */
 export function calcAnnualized3M(latest: number, prev3m: number): number {
-  return (Math.pow(latest / prev3m, 4) - 1) * 100
+  return calcAnnualized(latest, prev3m, 3)
+}
+
+/**
+ * 베이스효과 캐리오버 (%p) — "다음 달 MoM=0이면 다음 YoY가 어디로 갈지".
+ *   = (value_t / value_{t-11} - 1) * 100
+ * 다음 달엔 12개월 전(value_{t-11}) 값이 분모로 들어오므로, 이번 값이 그대로 유지될 때의
+ * YoY를 미리 본다. 현재 YoY와의 차이가 곧 "베이스(롤오프) 효과".
+ */
+export function calcCarryover(latest: number, value11mAgo: number): number {
+  return (latest / value11mAgo - 1) * 100
+}
+
+/** PPI−CPI 마진 갭 (%p) = 생산자물가 YoY − 소비자물가 YoY. 양수=투입가가 산출가 추월(마진 압박). */
+export function calcMarginGap(ppiYoy: number, cpiYoy: number): number {
+  return ppiYoy - cpiYoy
+}
+
+/**
+ * 인플레이션 폭(diffusion) — 값 배열 중 (eps 초과) 상승 비중.
+ * null은 분모에서 제외. {up, total, pct}. total=0이면 pct=null.
+ */
+export function calcBreadth(
+  values: readonly (number | null)[],
+  eps = 0,
+): { up: number; total: number; pct: number | null } {
+  let up = 0
+  let total = 0
+  for (const v of values) {
+    if (v == null) continue
+    total++
+    if (v > eps) up++
+  }
+  return { up, total, pct: total === 0 ? null : (up / total) * 100 }
 }
 
 /**

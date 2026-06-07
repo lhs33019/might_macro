@@ -186,6 +186,7 @@ release_schedule -- FRED release 발표 일정 (PPI release_id=46) — 적재 �
 - 재적재는 **upsert**(있으면 갱신, 없으면 삽입)로 멱등하게.
 - `consensus`는 FRED 적재 경로와 완전히 분리된 수동 입력이다. `data/consensus.seed.json` 편집 후 `npm run ingest:consensus`로 upsert한다. 서프라이즈 = 실측 YoY − 컨센서스 YoY이며, **기준월(latestDate)과 컨센서스 date가 일치할 때만** 계산한다. 값이 없으면 `—`로 표기하고, 있을 때는 `source`를 항상 화면에 노출한다(샘플/Demo를 진짜처럼 보이지 않게).
 - 부문 기여도는 동일 계열(NSA)인 재화·서비스만 BLS 상대중요도(`lib/config/weights.ts`)로 가중해 분해한다(SA/NSA 혼합 금지).
+- **CPI(`CPIAUCSL`·`CPILFESL`, SA) + PCE 반영 PPI 라인**(`lib/config/pce-ppi.ts`)은 ingest 시드에 포함해 항상 갱신한다. CPI는 PPI 카테고리 트리 밖이라 자동 발견되지 않으므로 시드 명시가 필수다. 마진·PCE·모멘텀 패널은 `series_trend_mv` 대신 **관측값에서 직접 계산**(MV 갱신 실패와 무관). 인플레 폭만 MV 집계(best-effort).
 
 ---
 
@@ -207,7 +208,12 @@ release_schedule -- FRED release 발표 일정 (PPI release_id=46) — 적재 �
 - **MoM (전월 대비, %)** = `(value_t / value_{t-1} - 1) * 100`
 - **YoY (전년 동월 대비, %)** = `(value_t / value_{t-12} - 1) * 100`
 - **Annualized 3M (3M SAAR, %)** = `((value_t / value_{t-3})^4 - 1) * 100` — 최근 3개월 모멘텀의 연율. 시장 중요도 높음. SA 계열에서 의미 명확(NSA는 계절성 주의). 대시보드 KPI 주지표.
+- **Annualized N (SAAR, %)** = `((value_t / value_{t-N})^(12/N) - 1) * 100` — 일반화 연율(`calcAnnualized`). 모멘텀 래더의 1M/3M/6M에 사용. 3M은 이 함수의 별칭.
 - **실질 가속도 (%p)** = `Annualized 3M − YoY` — 단기 모멘텀이 12개월 추세를 추월(+)/하회(−)하는 폭. 기존 ΔYoY(=yoy−yoy3m)보다 전환점에 선행·민감(검증 완료). 태그는 ΔYoY 유지, UI·한줄평은 실질 가속도 사용.
+- **베이스효과 캐리오버 (%)** = `(value_t / value_{t-11} - 1) * 100` — "다음 달 MoM=0이면 다음 YoY". 현재 YoY와의 차이가 롤오프(base) 효과.
+- **PPI−CPI 마진 갭 (%p)** = `PPI YoY − CPI YoY` — 투입가 vs 산출가. 양수=마진 압박. **양쪽 SA 계열로만 비교**(헤드라인 CPIAUCSL/PPIFIS, 코어 CPILFESL/PPIFES).
+- **인플레이션 폭(diffusion, %)** = 전체 시리즈 중 (MoM 또는 YoY) 상승 비중. `series_trend_mv` 집계.
+- **PPI→PCE 파이프라인**: 코어 PCE에 PPI가 소스로 반영되는 라인(의료·금융·항공, `lib/config/pce-ppi.ts`)의 방향 종합. **가중치 미공개 → 방향 신호만**(정밀 PCE 수치 미산출).
 - **Headline**: `PPIACO` (전체 PPI 지수, 기준 대표값) / **Core**: 식품·에너지 제외 지수
 - 기준연도·SA/NSA를 혼동하지 않는다. 같은 차트 안에서는 동일 계열(SA 또는 NSA)만 비교한다.
 - 수치 옆에는 항상 **기준(시리즈명·단위·기준연도·발표월)** 을 표기해 정확성을 드러낸다.

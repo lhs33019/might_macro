@@ -12,6 +12,10 @@ import { Heatmap } from '@/components/charts/Heatmap'
 import { ContributionBars } from '@/components/charts/ContributionBars'
 import { InsightBanner } from './InsightBanner'
 import { SectorAnn3mBars } from './SectorAnn3mBars'
+import { ReleaseBriefing } from './ReleaseBriefing'
+import { PcePipelineCard } from './PcePipelineCard'
+import { MarginSpreadCard } from './MarginSpreadCard'
+import { MomentumLadder } from './MomentumLadder'
 import { calcAnnualized3M, calcContribution } from '@/lib/analytics'
 import { FD_RELATIVE_IMPORTANCE } from '@/lib/config/weights'
 import { isApiError } from '@/lib/types'
@@ -55,7 +59,10 @@ interface DashboardViewProps {
 
 export function DashboardView({ data }: DashboardViewProps) {
   const isMobile = useIsMobile()
-  const { headline, sectorAnn3m, heatmap, insight, refDate, nextRelease } = data
+  const {
+    headline, sectorAnn3m, heatmap, insight, refDate, nextRelease,
+    pcePipeline, marginSpread, momentum, briefing,
+  } = data
 
   // 추세 차트 — 선택된 헤드라인 시리즈 + 모드
   const [selectedId, setSelectedId] = useState<string>(headline[0]?.seriesId ?? 'PPIACO')
@@ -187,6 +194,9 @@ export function DashboardView({ data }: DashboardViewProps) {
         </div>
       </header>
 
+      {/* ── 발표일 브리핑 (지표 종합 캡스톤) ── */}
+      {briefing && <ReleaseBriefing data={briefing} refMonth={refMonth} />}
+
       {/* ── AI 한줄평 ── */}
       <InsightBanner insight={insight} />
 
@@ -311,6 +321,42 @@ export function DashboardView({ data }: DashboardViewProps) {
                 기여 합계 {(fdContribTotal >= 0 ? '+' : '') + fdContribTotal.toFixed(2)}%p
               </span>
             </div>
+          </Card>
+        )}
+
+        {/* PPI→PCE 파이프라인 (좌) */}
+        {pcePipeline && (
+          <Card
+            eyebrow="PPI → PCE 파이프라인"
+            title="코어 PCE 반영 PPI"
+            style={{ gridColumn: isMobile ? 'auto' : '1 / 2' }}
+            right={<span className="t-caption">{refMonth} · 3M·MoM·YoY</span>}
+          >
+            <PcePipelineCard data={pcePipeline} />
+          </Card>
+        )}
+
+        {/* PPI−CPI 마진 스프레드 (우) */}
+        {marginSpread && (
+          <Card
+            eyebrow="투입가 vs 산출가"
+            title="PPI−CPI 마진 스프레드"
+            style={{ gridColumn: isMobile ? 'auto' : '2 / 3' }}
+            right={<span className="t-caption">YoY 기준 · SA</span>}
+          >
+            <MarginSpreadCard data={marginSpread} />
+          </Card>
+        )}
+
+        {/* 모멘텀 래더 — full width */}
+        {momentum.length > 0 && (
+          <Card
+            eyebrow="인플레이션 모멘텀"
+            title="모멘텀 래더 (1M·3M·6M·YoY)"
+            style={{ gridColumn: isMobile ? 'auto' : '1 / 3' }}
+            right={<span className="t-caption">연율(SAAR) %</span>}
+          >
+            <MomentumLadder rows={momentum} />
           </Card>
         )}
       </div>

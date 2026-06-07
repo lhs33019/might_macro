@@ -310,10 +310,13 @@ REVOKE SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
 |------|------|-----------|------|------|
 | `npm run ingest` | 전체 (~8,100개) | 전체 이력 | 수 시간 | 최초 적재 |
 | `npm run ingest:incremental` | 전체 (~8,100개) | 증분 (신규·갱신분) | 수십 분 | 정기 전체 갱신 |
-| `npm run ingest:headline` | 헤드라인 9개 | 전체 이력 | 수십 초 | 한줄평 재생성 |
-| `npm run ingest:update` | 헤드라인 9개 | 증분 | 수십 초 | **월간 최속 갱신** |
+| `npm run ingest:headline` | 헤드라인 9 + PCE·CPI 6 | 전체 이력 | 수십 초 | 한줄평 재생성 |
+| `npm run ingest:update` | 헤드라인 9 + PCE·CPI 6 | 증분 | 수십 초 | **월간 최속 갱신** |
 | `npm run ingest:retry` | 이전 실패분 | 전체 이력 | 가변 | 실패 복구 |
 | `npm run ingest:consensus` | 컨센서스 | `data/consensus.seed.json` upsert | 즉시 | 시장 예상치 입력 (§2-4) |
+
+> 비-retry 경로는 **PCE 반영 PPI 4종 + CPI 2종**(`CPIAUCSL`·`CPILFESL`)을 시드에 자동 포함한다.
+> CPI는 PPI 카테고리 트리 밖이라 자동 발견되지 않으므로 시드 명시가 필수다(마진 스프레드용).
 
 **공통 동작 (적재 종료 후 자동 실행 — consensus 제외)**:
 1. `series_trend_mv` 새로고침 → 화면 지표·태그 최신화
@@ -460,6 +463,22 @@ MoM 기여도(`기여도 = 상대중요도 × MoM`, %p)를 좌우 발산 막대�
 
 헤더에 **다음 PPI 발표일과 D-day**를 표기한다. 적재 시점에 FRED `release/dates`(release_id=46)에서 받아
 `release_schedule`에 저장한 값을 화면이 읽는다(런타임 FRED 호출 금지). 예정일이 없으면 표기를 생략한다.
+
+### 3-8. 발표일 브리핑 (매크로 캡스톤)
+
+상단 스트립에 신규 지표를 **결정적으로 종합**한다: 컨센서스 상회/하회 건수 · 최고 가속 부문 · 가격 상승 폭(diffusion) · 코어 PCE 압력 · PPI−CPI 마진. "손쉬운 인사이트 획득"의 랜딩이며, AI 한줄평(Gemini)이 없어도 단독 동작한다. AI 한줄평은 이 지표들을 입력으로 받아 더 풍부해진다.
+
+### 3-9. PPI → PCE 파이프라인
+
+코어 PCE에 PPI가 소스로 반영되는 라인(의료 `PCU621111621111`·`PCU622110622110`, 금융 `PCU523920523920`, 항공 `PCU481111481111` — SSoT [`lib/config/pce-ppi.ts`](lib/config/pce-ppi.ts))의 3M·MoM·YoY를 보여주고 **압력 방향(강화/완화/혼조)**을 종합한다. 가중치 미공개이므로 정밀 PCE 수치가 아닌 **방향 신호**만 제시(NSA 주의).
+
+### 3-10. PPI−CPI 마진 스프레드
+
+투입가(PPI) vs 산출가(CPI) YoY 갭(%p). 헤드라인(`PPIFIS`−`CPIAUCSL`)·코어(`PPIFES`−`CPILFESL`), **양쪽 SA**. 양수=마진 압박, 음수=가격 전가력. CPI는 PPI 트리 밖이라 ingest 시드에 명시 포함([`lib/config/macro.ts`](lib/config/macro.ts)).
+
+### 3-11. 인플레이션 모멘텀 래더
+
+헤드라인별 **1M·3M·6M 연율(SAAR) + YoY**를 나란히 배치해 단기→장기 모멘텀의 가속/둔화를 한눈에. **캐리오버**(다음달 MoM=0일 때의 YoY)로 베이스효과를 미리 본다.
 
 ---
 

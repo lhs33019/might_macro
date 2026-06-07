@@ -19,6 +19,7 @@
 | **v1.1** | 2026-06-04 | 빨간펜 리뷰 반영. ① P0-1 재정의(YoY+컨센서스+서프라이즈) ② P0-3 단일선택·기본값 headline 확정 ③ §6.3 인사이트 규칙 R1~R5 추가 ④ consensus 테이블(수동 입력) 추가 ⑤ 오픈질문 Q1(PPIACO) · Q2(FRED 카테고리) · Q3(localStorage) 전부 확정 ⑥ 결측 처리 "선 끊기, 0 대체 금지" 명확화 |
 | **v2.0** | 2026-06-04 | **최종본**. ① §14 부록 A: 프론트↔백 API 계약 타입(Frozen) 추가 ② M1 스캐폴딩 완료 표시 ③ 전체 오픈질문 0건 확인 ④ 기준 문서로 확정 |
 | **v2.1** | 2026-06-05 | **구현 정렬**. M3·M4 구현 과정 결정 반영: ① **주지표를 Annualized 3M(+실질가속도)로 격상**(P0-1의 YoY·컨센서스·서프라이즈는 보조로 병기) ② **P1-4 인사이트를 규칙기반→Gemini LLM 한줄평으로 전환**(§6.3 규칙세트·`calcInsight`는 폐기, 적재 시점 1회 생성→`dashboard_insight` 저장) ③ KPI 응답 타입 `KpiItem`→**`HeadlineKpi`**로 대체(부록 A) ④ 신규: 발표 캘린더 D-day(`release_schedule`)·부문 기여도 분해(재화·서비스, BLS 상대중요도) ⑤ 컨센서스 입력 경로 `data/consensus.seed.json` + `npm run ingest:consensus` |
+| **v2.2** | 2026-06-07 | **매크로 투자자 고도화**. 실무 PPI 활용법을 기능화: ① **PPI→PCE 파이프라인**(코어 PCE 반영 PPI 라인 방향 종합, `lib/config/pce-ppi.ts`) ② **모멘텀 래더**(1M/3M/6M 연율 + YoY + 베이스효과 캐리오버) ③ **인플레이션 폭**(diffusion, 전체 시리즈 상승 비중) ④ **PPI−CPI 마진 스프레드**(CPI `CPIAUCSL`·`CPILFESL` 신규 적재, 양쪽 SA) ⑤ **발표일 브리핑** 캡스톤 + AI 한줄평을 신규 지표로 강화. 포커스 패널은 MV 비의존(관측값 직접 계산). 신규 순수함수 `calcAnnualized`·`calcCarryover`·`calcMarginGap`·`calcBreadth`(테스트 동반, 총 27개). |
 
 ---
 

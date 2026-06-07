@@ -3,7 +3,10 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { calcMoM, calcYoY, classifyTrend, calcAnnualized3M, calcAccel3M, calcContribution } from './index'
+import {
+  calcMoM, calcYoY, classifyTrend, calcAnnualized3M, calcAccel3M, calcContribution,
+  calcAnnualized, calcCarryover, calcMarginGap, calcBreadth,
+} from './index'
 import type { TrendMetrics } from '@/lib/types'
 
 // 모든 필드 null인 기본값에서 필요한 것만 덮어쓴다
@@ -42,6 +45,31 @@ test('calcAccel3M: ann3m > yoy → 양수(가속)', () => {
 })
 test('calcAccel3M: ann3m < yoy → 음수(둔화)', () => {
   assert.ok(near(calcAccel3M(0.35, 3.57), -3.22))
+})
+
+// ─── Annualized N · 캐리오버 · 마진갭 · 폭 ───────────────────
+test('calcAnnualized: 6개월 +5% → 연율 ((1.05)^2-1)=+10.25%', () => {
+  assert.ok(near(calcAnnualized(105, 100, 6), 10.25))
+})
+test('calcAnnualized(months=3) === calcAnnualized3M', () => {
+  assert.ok(near(calcAnnualized(105, 100, 3), calcAnnualized3M(105, 100)))
+})
+test('calcCarryover: latest 110, 11개월 전 100 → +10%', () => {
+  assert.ok(near(calcCarryover(110, 100), 10))
+})
+test('calcMarginGap: PPI 5 − CPI 3 = +2%p (마진 압박)', () => {
+  assert.ok(near(calcMarginGap(5, 3), 2))
+})
+test('calcBreadth: [+,+,-,null] → up 2 / total 3 / 66.7%', () => {
+  const r = calcBreadth([0.4, 1.2, -0.3, null])
+  assert.equal(r.up, 2)
+  assert.equal(r.total, 3)
+  assert.ok(near(r.pct!, (2 / 3) * 100))
+})
+test('calcBreadth: 전부 null → pct null', () => {
+  const r = calcBreadth([null, null])
+  assert.equal(r.total, 0)
+  assert.equal(r.pct, null)
 })
 
 // ─── 부문 기여도 분해 ────────────────────────────────────────

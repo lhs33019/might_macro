@@ -241,12 +241,73 @@ export interface NextRelease {
   readonly dDay: number   // 오늘 기준 남은 일수 (0 = 오늘 발표)
 }
 
+/** 인플레이션 폭(diffusion) — 전체 시리즈 중 상승 비중 */
+export interface InflationBreadth {
+  readonly momUpPct: number | null  // MoM>0 비중 (%)
+  readonly yoyUpPct: number | null  // YoY>0 비중 (%)
+  readonly total: number            // 분모(유효 시리즈 수)
+}
+
+/** 코어 PCE에 반영되는 PPI 라인 1개 + 압력 종합 */
+export interface PcePipelineItem {
+  readonly seriesId: string
+  readonly label: string
+  readonly group: string
+  readonly mom: number | null
+  readonly ann3m: number | null
+  readonly yoy: number | null
+}
+export interface PcePipeline {
+  readonly items: readonly PcePipelineItem[]
+  readonly read: 'firming' | 'softening' | 'mixed' | null  // 방향 종합(가중합 아님)
+}
+
+/** PPI−CPI 마진 스프레드 1쌍 */
+export interface MarginSpreadItem {
+  readonly key: string
+  readonly label: string
+  readonly ppiYoy: number | null
+  readonly cpiYoy: number | null
+  readonly gap: number | null   // ppiYoy − cpiYoy (%p, 양수=마진 압박)
+}
+export interface MarginSpread {
+  readonly pairs: readonly MarginSpreadItem[]
+}
+
+/** 인플레이션 모멘텀 래더 1행 (헤드라인 시리즈별) */
+export interface MomentumRow {
+  readonly seriesId: string
+  readonly label: string
+  readonly ann1m: number | null     // 1개월 연율
+  readonly ann3m: number | null     // 3개월 연율 (3M SAAR)
+  readonly ann6m: number | null     // 6개월 연율
+  readonly yoy: number | null       // 12개월
+  readonly carryover: number | null // 다음 YoY if MoM=0 (베이스효과 프리뷰)
+}
+
+/** 발표일 브리핑 — 신규 지표를 결정적으로 종합한 한눈 요약 */
+export interface ReleaseBriefing {
+  readonly surpriseBeats: number      // 컨센서스 상회 건수
+  readonly surpriseMisses: number     // 컨센서스 하회 건수
+  readonly surpriseTotal: number      // 컨센서스 비교 가능 건수
+  readonly topAccelLabel: string | null  // 최고 가속 부문
+  readonly topAccelValue: number | null  // 그 실질가속도 (%p)
+  readonly breadthPct: number | null     // MoM 상승 비중 (%)
+  readonly pceRead: 'firming' | 'softening' | 'mixed' | null
+  readonly marginRead: 'squeeze' | 'relief' | 'neutral' | null  // 헤드라인 갭 기준
+}
+
 export interface DashboardResponse {
   readonly headline:    readonly HeadlineKpi[]      // 8개, HEADLINE_SERIES 순서
   readonly sectorAnn3m: readonly HeadlineKpi[]      // ann3m 내림차순(부문 랭킹 카드용)
   readonly heatmap:     readonly DashboardHeatRow[] // 8개 × 최근 8개월 MoM
   readonly insight:     DashboardInsight | null
   readonly nextRelease: NextRelease | null           // 다음 발표 D-day (없으면 null)
+  readonly breadth:     InflationBreadth | null      // 인플레 폭
+  readonly pcePipeline: PcePipeline | null           // PPI→PCE 파이프라인
+  readonly marginSpread: MarginSpread | null         // PPI−CPI 마진
+  readonly momentum:    readonly MomentumRow[]        // 헤드라인 모멘텀 래더
+  readonly briefing:    ReleaseBriefing | null        // 발표일 브리핑(종합)
   readonly refDate:     string | null               // 헤드라인 기준월
   readonly computedAt:  string
 }

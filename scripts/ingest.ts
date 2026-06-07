@@ -25,7 +25,10 @@ import {
   fetchReleaseDates,
   PPI_RELEASE_ID,
 } from '../lib/fred/client'
-import { HEADLINE_SERIES, HEADLINE_IDS, CORE_REFERENCE_SERIES } from '../lib/config/headline'
+import { HEADLINE_IDS, CORE_REFERENCE_SERIES } from '../lib/config/headline'
+import { PCE_PPI_IDS } from '../lib/config/pce-ppi'
+import { CPI_IDS } from '../lib/config/macro'
+import { fetchDashboard } from '../lib/queries/dashboard'
 import { generateInsight, type InsightMetricInput } from '../lib/insight/generate'
 
 // ─── 설정 ────────────────────────────────────────────────────────────────────
@@ -257,51 +260,55 @@ async function generateAndStoreInsight(): Promise<void> {
     return
   }
   const db = getSupabase()
-  process.stdout.write('[한줄평] 헤드라인 지표 수집 중...')
+  process.stdout.write('[한줄평] 대시보드 지표 수집 중...')
 
-  // 헤드라인 + 근원(PPIFES) 지표 일괄 조회
-  const ids = [...HEADLINE_IDS, CORE_REFERENCE_SERIES]
-  const { data: rows, error } = await db
-    .from('series_trend_mv')
-    .select('series_id, latest_date, yoy, mom, ann3m, accel3m')
-    .in('series_id', ids)
-  if (error) {
-    process.stdout.write(`\r[한줄평] 지표 조회 실패: ${error.message}\n`)
+  // 대시보드 조립 결과를 그대로 재사용 → 화면과 동일한 지표(헤드라인·폭·PCE·마진)로 일관성 보장
+  let dash
+  try {
+    dash = await fetchDashboard()
+  } catch (e) {
+    process.stdout.write(`\r[한줄평] 지표 조회 실패: ${e instanceof Error ? e.message : String(e)}\n`)
     return
   }
-
-  const byId = new Map((rows ?? []).map((r) => [r.series_id, r]))
-  const num = (v: number | string | null | undefined): number | null =>
-    v == null ? null : Number(v)
-
-  const headline: InsightMetricInput[] = HEADLINE_SERIES.map((def) => {
-    const r = byId.get(def.id)
-    return {
-      label:   def.label,
-      yoy:     num(r?.yoy),
-      mom:     num(r?.mom),
-      ann3m:   num(r?.ann3m),
-      accel3m: num(r?.accel3m),
-    }
-  })
-
-  // 기준월 = 헤드라인 중 가장 최신 관측월
-  const refDate = (rows ?? [])
-    .filter((r) => HEADLINE_IDS.includes(r.series_id) && r.latest_date)
-    .reduce<string | null>((mx, r) => (mx == null || r.latest_date > mx ? r.latest_date : mx), null)
-  if (!refDate) {
+  if (!dash.refDate) {
     process.stdout.write('\r[한줄평] 기준월 산출 불가 — 스킵                 \n')
     return
   }
-  const coreYoy = num(byId.get(CORE_REFERENCE_SERIES)?.yoy)
+
+  // 근원(PPIFES) YoY — 헤드라인엔 없으므로 별도 조회 (헤드라인↔코어 비교용)
+  const { data: coreRow } = await db
+    .from('series_trend_mv')
+    .select('yoy')
+    .eq('series_id', CORE_REFERENCE_SERIES)
+    .maybeSingle()
+  const coreYoy = coreRow?.yoy != null ? Number(coreRow.yoy) : null
+
+  const headline: InsightMetricInput[] = dash.headline.map((h) => ({
+    label: h.label, yoy: h.yoy, mom: h.mom, ann3m: h.ann3m, accel3m: h.accel3m,
+  }))
+  const marginGap = dash.marginSpread?.pairs.find((p) => p.key === 'headline')?.gap ?? null
 
   process.stdout.write('\r[한줄평] LLM 생성 중...                          ')
   try {
-    const { body, model } = await generateInsight({ refDate, headline, coreYoy })
+    const { body, model } = await generateInsight({
+      refDate: dash.refDate,
+      headline,
+      coreYoy,
+      breadthPct: dash.briefing?.breadthPct ?? null,
+      pceRead: dash.briefing?.pceRead ?? null,
+      marginGap,
+      topAccelLabel: dash.briefing?.topAccelLabel ?? null,
+      topAccelValue: dash.briefing?.topAccelValue ?? null,
+    })
     const { error: upErr } = await db
       .from('dashboard_insight')
       .upsert(
-        { ref_date: refDate, body, model, metrics: { headline, coreYoy } },
+        {
+          ref_date: dash.refDate,
+          body,
+          model,
+          metrics: { headline, coreYoy, breadthPct: dash.briefing?.breadthPct ?? null, pceRead: dash.briefing?.pceRead ?? null, marginGap },
+        },
         { onConflict: 'ref_date' },
       )
     if (upErr) {
@@ -391,6 +398,15 @@ async function main() {
   } else {
     // 일반 모드: 자동 발견
     ids = await discoverSeriesIds()
+  }
+
+  // 비-retry 경로: PCE 반영 PPI + 마진용 CPI 시드를 항상 포함.
+  // (CPI는 PPI 카테고리 트리 밖이라 자동 발견되지 않으므로 명시 시드 필수)
+  if (!isRetry) {
+    const before = ids.length
+    ids = Array.from(new Set([...ids, ...PCE_PPI_IDS, ...CPI_IDS]))
+    const added = ids.length - before
+    if (added > 0) console.log(`[시드] PCE/CPI 시리즈 ${added}개 추가 포함 (총 ${ids.length})`)
   }
 
   // 증분 모드: retry는 실패 재시도이므로 증분 미적용

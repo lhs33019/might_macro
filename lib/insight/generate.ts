@@ -22,6 +22,12 @@ export interface InsightGenInput {
   readonly refDate: string                        // 헤드라인 기준월 (YYYY-MM-DD)
   readonly headline: readonly InsightMetricInput[] // 8개 헤드라인
   readonly coreYoy: number | null                 // 진짜 근원(PPIFES) YoY (헤드라인↔코어 비교용)
+  // 추가 맥락 (선택) — 신규 지표로 코멘트를 풍부하게
+  readonly breadthPct?: number | null             // 가격 상승 폭(MoM>0 비중, %)
+  readonly pceRead?: 'firming' | 'softening' | 'mixed' | null  // 코어 PCE 압력 방향
+  readonly marginGap?: number | null              // 헤드라인 PPI−CPI 갭(%p, +면 마진 압박)
+  readonly topAccelLabel?: string | null          // 최고 가속 부문
+  readonly topAccelValue?: number | null          // 그 실질가속도(%p)
 }
 
 export interface InsightGenResult {
@@ -47,7 +53,22 @@ function serializeMetrics(input: InsightGenInput): string {
     input.coreYoy != null
       ? `\n참고: 근원(식품·에너지 제외) YoY ${fmt(input.coreYoy)}`
       : ''
-  return `기준월: ${input.refDate}\n${lines.join('\n')}${core}`
+
+  // 추가 맥락 (있을 때만)
+  const ctx: string[] = []
+  if (input.topAccelLabel != null && input.topAccelValue != null)
+    ctx.push(`최고 가속 부문: ${input.topAccelLabel}(실질가속 ${fmt(input.topAccelValue, '%p')})`)
+  if (input.breadthPct != null)
+    ctx.push(`가격 상승 폭: 전체 시리즈 중 MoM 상승 ${input.breadthPct.toFixed(0)}%`)
+  if (input.pceRead != null) {
+    const r = input.pceRead === 'firming' ? '강화' : input.pceRead === 'softening' ? '완화' : '혼조'
+    ctx.push(`코어 PCE 반영 PPI(의료·금융·항공) 압력: ${r}`)
+  }
+  if (input.marginGap != null)
+    ctx.push(`PPI−CPI 갭: ${fmt(input.marginGap, '%p')}(양수=마진 압박)`)
+  const ctxBlock = ctx.length ? `\n추가 맥락:\n- ${ctx.join('\n- ')}` : ''
+
+  return `기준월: ${input.refDate}\n${lines.join('\n')}${core}${ctxBlock}`
 }
 
 const SYSTEM_INSTRUCTION = `당신은 미국 생산자물가지수(PPI)를 해설하는 한국어 매크로 이코노미스트입니다.
@@ -57,7 +78,7 @@ const SYSTEM_INSTRUCTION = `당신은 미국 생산자물가지수(PPI)를 해�
 - 정확히 한 문장(최대 3개 절). 수치를 1~2개 인용하되 과장·추측 금지.
 - "Annualized 3M"(최근 3개월 연율)과 "실질 가속도(3M이 YoY를 추월/하회하는 폭)"를 중심으로 해석.
 - 가장 두드러진 부문(가속/둔화)을 1개 짚고, 헤드라인 대비 흐름을 언급.
-- 데이터에 없는 CPI 전이 등은 "과거 패턴상" 같은 일반적 표현으로만, 단정 금지.
+- "추가 맥락"(가격 상승 폭·코어 PCE 반영 PPI 압력·PPI−CPI 마진 갭)이 주어지면 그중 1개를 자연스럽게 엮어도 됨(주어진 값만, 단정 금지).
 - 이모지·마크다운·따옴표 없이 평문 한 문장만 출력.`
 
 /**
