@@ -41,6 +41,8 @@
 
 **M2 시작 전 필요한 것**: `.env.local`에 FRED_API_KEY, Supabase 3개 키 입력 → README §2 참고.
 
+> **이후 개선 로드맵(투자 아이디어 발견 고도화)**: [`docs/ROADMAP_IDEA_DISCOVERY.md`](docs/ROADMAP_IDEA_DISCOVERY.md) — Phase 1(베이스효과 시뮬레이터·극단값 스크리너·ingest 자동화·P1 잔여 3종) → Phase 2(산업 마진 프록시·상품군 diffusion·유사국면) → Phase 3(조건부). 파이프라인 패스스루 패널은 구현 완료(2026-06).
+
 ---
 
 ## 3. 기술 스택 (사용 예정 후보)
@@ -186,7 +188,7 @@ release_schedule -- FRED release 발표 일정 (PPI release_id=46) — 적재 �
 - 재적재는 **upsert**(있으면 갱신, 없으면 삽입)로 멱등하게.
 - `consensus`는 FRED 적재 경로와 완전히 분리된 수동 입력이다. `data/consensus.seed.json` 편집 후 `npm run ingest:consensus`로 upsert한다. 서프라이즈 = 실측 YoY − 컨센서스 YoY이며, **기준월(latestDate)과 컨센서스 date가 일치할 때만** 계산한다. 값이 없으면 `—`로 표기하고, 있을 때는 `source`를 항상 화면에 노출한다(샘플/Demo를 진짜처럼 보이지 않게).
 - 부문 기여도는 동일 계열(NSA)인 재화·서비스만 BLS 상대중요도(`lib/config/weights.ts`)로 가중해 분해한다(SA/NSA 혼합 금지).
-- **CPI(`CPIAUCSL`·`CPILFESL`, SA) + PCE 반영 PPI 라인**(`lib/config/pce-ppi.ts`)은 ingest 시드에 포함해 항상 갱신한다. CPI는 PPI 카테고리 트리 밖이라 자동 발견되지 않으므로 시드 명시가 필수다. 마진·PCE·모멘텀 패널은 `series_trend_mv` 대신 **관측값에서 직접 계산**(MV 갱신 실패와 무관). 인플레 폭만 MV 집계(best-effort).
+- **CPI(`CPIAUCSL`·`CPILFESL`, SA) + PCE 반영 PPI 라인**(`lib/config/pce-ppi.ts`) + **파이프라인 단계**(`lib/config/pipeline.ts`: `WPSID62`·`WPSID61`·`PPIFIS`)는 ingest 시드에 포함해 항상 갱신한다. CPI는 PPI 카테고리 트리 밖이라 자동 발견되지 않고, 파이프라인 WPSID*는 트리 안에 있지만 헤드라인 모드(`ingest:update`)가 발견을 생략하므로 시드 명시가 필수다. 마진·PCE·파이프라인·모멘텀 패널은 `series_trend_mv` 대신 **관측값에서 직접 계산**(MV 갱신 실패와 무관). 인플레 폭만 MV 집계(best-effort).
 
 ---
 
@@ -211,9 +213,12 @@ release_schedule -- FRED release 발표 일정 (PPI release_id=46) — 적재 �
 - **Annualized N (SAAR, %)** = `((value_t / value_{t-N})^(12/N) - 1) * 100` — 일반화 연율(`calcAnnualized`). 모멘텀 래더의 1M/3M/6M에 사용. 3M은 이 함수의 별칭.
 - **실질 가속도 (%p)** = `Annualized 3M − YoY` — 단기 모멘텀이 12개월 추세를 추월(+)/하회(−)하는 폭. 기존 ΔYoY(=yoy−yoy3m)보다 전환점에 선행·민감(검증 완료). 태그는 ΔYoY 유지, UI·한줄평은 실질 가속도 사용.
 - **베이스효과 캐리오버 (%)** = `(value_t / value_{t-11} - 1) * 100` — "다음 달 MoM=0이면 다음 YoY". 현재 YoY와의 차이가 롤오프(base) 효과.
+- **베이스효과 시나리오 (`projectYoyPath`)** = 캐리오버의 다개월 일반화. `v_{t+k} = v_t × (1+m/100)^k`, YoY 분모는 k≤12이면 실측·k>12이면 프로젝션(k=12부터 `((1+m)^12−1)×100` 수렴). 추세 차트 YoY 모드 전용, 클라이언트 계산. **가정 기반 시뮬레이션이며 예측 아님** — 캡션 의무.
 - **PPI−CPI 마진 갭 (%p)** = `PPI YoY − CPI YoY` — 투입가 vs 산출가. 양수=마진 압박. **양쪽 SA 계열로만 비교**(헤드라인 CPIAUCSL/PPIFIS, 코어 CPILFESL/PPIFES).
 - **인플레이션 폭(diffusion, %)** = 전체 시리즈 중 (MoM 또는 YoY) 상승 비중. `series_trend_mv` 집계.
+- **10년 백분위 (극단값 스크리너)** = 최신 YoY/MoM의 최근 10년 월별 분포 내 `percent_rank()×100` — `series_trend_mv`에 사전계산(`yoy_pctile_10y`·`mom_pctile_10y`). 표본 24개월 미만이면 NULL(미표시). `역사적극단` 태그 = P95↑ 또는 P5↓(`isHistoricalExtreme`). **z-score(`yoy_z10y`)는 두꺼운 꼬리 때문에 단독 노출 금지 — 백분위 병기 전용.**
 - **PPI→PCE 파이프라인**: 코어 PCE에 PPI가 소스로 반영되는 라인(의료·금융·항공, `lib/config/pce-ppi.ts`)의 방향 종합. **가중치 미공개 → 방향 신호만**(정밀 PCE 수치 미산출).
+- **파이프라인 패스스루**: 미가공(`WPSID62`)→가공(`WPSID61`)→최종수요(`PPIFIS`) 단계별 3M 연율 비교(전 단계 SA, `lib/config/pipeline.ts`). 종합 판정 = 상류(1·2단계) 평균 3M 연율 − 하류 3M 연율 갭, **±0.5%p** 임계로 압력 누적/완화/혼조. 구체계 `PPIITM`·`PPICRM`은 2015-12 단종 — **사용 금지**.
 - **Headline**: `PPIACO` (전체 PPI 지수, 기준 대표값) / **Core**: 식품·에너지 제외 지수
 - 기준연도·SA/NSA를 혼동하지 않는다. 같은 차트 안에서는 동일 계열(SA 또는 NSA)만 비교한다.
 - 수치 옆에는 항상 **기준(시리즈명·단위·기준연도·발표월)** 을 표기해 정확성을 드러낸다.

@@ -27,6 +27,7 @@ import {
 } from '../lib/fred/client'
 import { HEADLINE_IDS, CORE_REFERENCE_SERIES } from '../lib/config/headline'
 import { PCE_PPI_IDS } from '../lib/config/pce-ppi'
+import { PIPELINE_IDS } from '../lib/config/pipeline'
 import { CPI_IDS } from '../lib/config/macro'
 import { fetchDashboard } from '../lib/queries/dashboard'
 import { generateInsight, type InsightMetricInput } from '../lib/insight/generate'
@@ -400,13 +401,15 @@ async function main() {
     ids = await discoverSeriesIds()
   }
 
-  // 비-retry 경로: PCE 반영 PPI + 마진용 CPI 시드를 항상 포함.
-  // (CPI는 PPI 카테고리 트리 밖이라 자동 발견되지 않으므로 명시 시드 필수)
+  // 비-retry 경로: PCE 반영 PPI + 마진용 CPI + 파이프라인 단계 시드를 항상 포함.
+  // (CPI는 PPI 카테고리 트리 밖이라 자동 발견되지 않으므로 명시 시드 필수.
+  //  파이프라인 WPSID*는 트리 안에 있지만 헤드라인 모드가 발견을 생략하므로
+  //  발표일 빠른 갱신(ingest:update)에서 누락되지 않게 시드로 보장)
   if (!isRetry) {
     const before = ids.length
-    ids = Array.from(new Set([...ids, ...PCE_PPI_IDS, ...CPI_IDS]))
+    ids = Array.from(new Set([...ids, ...PCE_PPI_IDS, ...CPI_IDS, ...PIPELINE_IDS]))
     const added = ids.length - before
-    if (added > 0) console.log(`[시드] PCE/CPI 시리즈 ${added}개 추가 포함 (총 ${ids.length})`)
+    if (added > 0) console.log(`[시드] PCE/CPI/파이프라인 시리즈 ${added}개 추가 포함 (총 ${ids.length})`)
   }
 
   // 증분 모드: retry는 실패 재시도이므로 증분 미적용

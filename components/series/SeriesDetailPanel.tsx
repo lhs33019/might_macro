@@ -37,6 +37,10 @@ interface SeriesDetailPanelProps {
   yoyMax10y: number | null
   ann3m: number | null
   accel3m: number | null
+  // 극단값 스크리너 (10년 분포 percent_rank, 표본<24개월이면 null)
+  yoyPctile10y: number | null
+  momPctile10y: number | null
+  yoyZ10y: number | null   // 보조 — 백분위 병기 전용, 단독 노출 금지
 }
 
 function fmtPct(v: number | null): string {
@@ -62,6 +66,9 @@ export function SeriesDetailPanel({
   yoyMax10y,
   ann3m,
   accel3m,
+  yoyPctile10y,
+  momPctile10y,
+  yoyZ10y,
 }: SeriesDetailPanelProps) {
   const n = PERIODS.find((p) => p.v === period)!.n
 
@@ -148,6 +155,19 @@ export function SeriesDetailPanel({
               {fmtPct(yoyMin10y)} ~ {fmtPct(yoyMax10y)}
             </div>
           </div>
+          <div>
+            <div className="t-label">10년 백분위 (YoY)</div>
+            <div className={`nw-trend-num${yoyPctile10y == null ? '' : yoyPctile10y >= 95 ? ' nw-val-up' : yoyPctile10y <= 5 ? ' nw-val-down' : ''}`}>
+              {yoyPctile10y == null
+                ? '—'
+                : `P${Math.round(yoyPctile10y)}${yoyZ10y != null ? ` · z ${(yoyZ10y > 0 ? '+' : '') + yoyZ10y.toFixed(1)}` : ''}`}
+            </div>
+            {momPctile10y != null && (
+              <div className="t-caption" style={{ fontSize: 11, marginTop: 2 }}>
+                MoM P{Math.round(momPctile10y)}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -192,6 +212,7 @@ export function SeriesDetailPanel({
       {!loading && observations && observations.length > 0 && (
         <div className="t-caption" style={{ marginTop: 8, color: 'var(--text-lo)' }}>
           {mode === 'mom' ? '전월비(MoM)' : '전년동월비(YoY)'} · {seriesId} · FRED
+          {yoyPctile10y != null && ' · 10년 백분위: 최근 10년 월별 분포 내 percent_rank (표본 24개월 미만 미표시)'}
         </div>
       )}
     </div>

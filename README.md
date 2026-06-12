@@ -300,7 +300,9 @@ REVOKE SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
 > 전체 마이그레이션 SQL은 Supabase 프로젝트의 마이그레이션 이력
 > (`series_trend_metrics_function`, `series_trend_materialized_view`,
 > `series_trend_mv_add_ann3m_accel`, `create_dashboard_insight`,
-> `create_get_series_latest_dates_rpc`, `lock_down_public_anon_access`)에 보존되어 있다.
+> `create_get_series_latest_dates_rpc`, `lock_down_public_anon_access`,
+> `series_trend_mv_add_pctile_z`)에 보존되어 있다.
+> `series_trend_mv_add_pctile_z`는 MV를 재생성하므로 anon/authenticated SELECT REVOKE를 끝에서 재적용한다.
 
 ### 2-3. FRED 데이터 적재
 
@@ -443,6 +445,8 @@ npm run ingest:consensus
 헤드라인 9개 중 선택 + 모드 토글(**3M연율 / MoM / YoY**) + 기간(1Y/3Y/5Y/전체).
 `3M연율` 모드는 관측값에서 롤링 3M SAAR을 계산해 그린다. NSA 계열 3M연율 선택 시 계절성 주석 표기.
 
+**베이스효과 시나리오** (YoY 모드 전용): "향후 MoM이 x%로 지속되면 YoY 경로는?"을 12개월 점선 프로젝션으로 겹쳐 본다 — 인플레 피크아웃/재가속 시점 판단 도구. 프리셋 0% / +0.2% / 최근 3M 평균 / 직접 입력(±5%/월 클램프). 순수함수 `projectYoyPath`(`calcCarryover`의 다개월 일반화, [lib/analytics](lib/analytics/index.ts)) 클라이언트 계산 — 서버/API 불변. k=12에서 YoY는 `((1+m)^12−1)`에 수렴하므로 지평은 12개월 고정. **가정 기반 시뮬레이션이며 예측이 아니다**(캡션 상시 표기).
+
 ### 3-4. 부문별 Annualized 3M 랭킹
 
 8개 헤드라인을 `ann3m` 내림차순 수평 막대로 표시. 양수(상승 모멘텀, warm)·음수(하락 모멘텀, cool).
@@ -480,26 +484,32 @@ MoM 기여도(`기여도 = 상대중요도 × MoM`, %p)를 좌우 발산 막대�
 
 헤드라인별 **1M·3M·6M 연율(SAAR) + YoY**를 나란히 배치해 단기→장기 모멘텀의 가속/둔화를 한눈에. **캐리오버**(다음달 MoM=0일 때의 YoY)로 베이스효과를 미리 본다.
 
+### 3-12. 파이프라인 패스스루
+
+**미가공 중간수요(`WPSID62`) → 가공 중간수요(`WPSID61`) → 최종수요(`PPIFIS`)** 의 단계별 3M 연율을 좌→우 흐름으로 배치해 물가 전이를 읽는다(SSoT [`lib/config/pipeline.ts`](lib/config/pipeline.ts), 전 단계 SA). 상류 가속 + 하류 평온 = 수개월 뒤 헤드라인 상승의 선행신호. **종합 판정**은 상류(1·2단계) 평균 3M 연율 − 하류 3M 연율 갭 기준 ±0.5%p로 압력 누적(▲)/완화(▼)/혼조(—). 구(舊) 가공단계 체계 `PPIITM`·`PPICRM`은 2015-12 단종이라 쓰지 않는다.
+
 ---
 
 ## 4. 시리즈 탐색 기능
 
 메인 대시보드 헤더의 **"시리즈 탐색"** 버튼 또는 직접 `/series`로 이동한다.
 
-### 4-1. Top Movers (상단 4개 테이블)
+### 4-1. Top Movers (상단 6개 테이블)
 
-DB 적재 전체 시리즈 대상 최근 MoM·YoY 상위·하위 5종. 글리프(▲/▼/—)+색상 동시 표시(색맹 접근성).
+DB 적재 전체 시리즈 대상 최근 MoM·YoY 상위·하위 5종 + **10Y 백분위 상위·하위 5종**(극단값 스크리너 — 활성 시리즈만, 값은 `P97` 형식). 글리프(▲/▼/—)+색상 동시 표시(색맹 접근성).
 
 ### 4-2. 검색 · 태그 필터
 
 - **검색창**: 시리즈 ID 또는 이름으로 즉시 필터링 (예: `PPIFIS`, `Final Demand`)
 - **특징 필터**: 추세 태그(상승가속·하락둔화·추세반전·10년최고 등)로 다중 선택(OR) 필터
+- **`#역사적극단`**: 최신 YoY가 10년 분포 상위 5%(P95↑)/하위 5%(P5↓)인 시리즈 — 레벨 기준인 `10년최고/최저`(범위 끝값 근접)보다 넓은 꼬리 기준
 
 ### 4-3. 시리즈 목록 (20개씩 페이지네이션)
 
 - **전체 기준 정렬**: 컬럼 헤더 클릭 시 전체 시리즈 정렬 후 페이지 적용
   - `Series ID` / `이름` / `카테고리`: 텍스트 정렬
-  - `MoM` / `YoY` / **`3M(연율)`**: 수치 정렬 (null 값은 항상 마지막)
+  - `MoM` / `YoY` / **`10Y 백분위`** / **`3M(연율)`**: 수치 정렬 (null 값은 항상 마지막)
+- **10Y 백분위 컬럼**: 최신 YoY의 10년 분포 percent_rank (`P97` 형식, P95↑/P5↓ 색 강조, 표본 24개월 미만은 `—`)
 - **같은 컬럼 재클릭**: 오름차순 ↔ 내림차순 토글
 - **행 클릭**: 오른쪽 상세 패널 표시 (재클릭 시 닫힘)
 
@@ -507,7 +517,7 @@ DB 적재 전체 시리즈 대상 최근 MoM·YoY 상위·하위 5종. 글리프
 
 시리즈 클릭 시 오른쪽 패널에 추세 요약 + 차트 표시:
 
-- **트렌드 요약 5칸**: 최신 YoY · **Annualized 3M** · **실질가속도(3M−YoY)** · 가속도 ΔYoY · 10년 YoY 범위
+- **트렌드 요약 6칸**: 최신 YoY · **Annualized 3M** · **실질가속도(3M−YoY)** · 가속도 ΔYoY · 10년 YoY 범위 · **10년 백분위**(`P97 · z +2.1` — z는 보조 병기, 단독 노출 금지)
 - **컨트롤**: 기간(6M/1Y/3Y/5Y/전체) · 지표(MoM/YoY)
 - 순수 SVG LineChart, 호버 크로스헤어, 방향별 면적 채움 색상
 

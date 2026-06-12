@@ -29,6 +29,7 @@ export type SeriesTag =
   | '상승가속' | '상승둔화' | '상승지속'
   | '하락가속' | '하락둔화' | '하락지속'
   | '횡보' | '추세반전' | '10년최고' | '10년최저'
+  | '역사적극단'   // 최신 YoY가 10년 분포 상위 5%(P95↑)/하위 5%(P5↓) — 레벨 기준인 10년최고/최저보다 넓은 꼬리 기준
 
 /** classifyTrend 입력 — DB series_trend_metrics() 행에서 매핑 */
 export interface TrendMetrics {
@@ -152,6 +153,10 @@ export interface SeriesWithStats {
   readonly deltaYoy: number | null       // ΔYoY(3m, %p)
   readonly yoyMin10y: number | null      // 10년 YoY 최소 (%)
   readonly yoyMax10y: number | null      // 10년 YoY 최대 (%)
+  // 극단값 스크리너 (10년 분포 percent_rank — 표본 24개월 미만이면 null)
+  readonly yoyPctile10y: number | null   // 최신 YoY의 10년 분포 백분위 (0~100)
+  readonly momPctile10y: number | null   // 최신 MoM의 10년 분포 백분위 (0~100)
+  readonly yoyZ10y: number | null        // 보조 z-score — 단독 노출 금지(두꺼운 꼬리), 백분위 병기 전용
 }
 
 // ─────────────────────────────────────────────
@@ -171,6 +176,8 @@ export interface TopMoversResponse {
   readonly momBottom: readonly TopMover[]   // MoM 하위 5
   readonly yoyTop:    readonly TopMover[]   // YoY 상위 5
   readonly yoyBottom: readonly TopMover[]   // YoY 하위 5
+  readonly pctileTop:    readonly TopMover[] // 10년 YoY 백분위 상위 5 (활성 시리즈만, value=백분위)
+  readonly pctileBottom: readonly TopMover[] // 10년 YoY 백분위 하위 5
   readonly refDate:   string | null         // 기준월
 }
 
@@ -262,6 +269,22 @@ export interface PcePipeline {
   readonly read: 'firming' | 'softening' | 'mixed' | null  // 방향 종합(가중합 아님)
 }
 
+/** 파이프라인 패스스루 단계 1개 (미가공→가공→최종수요) */
+export interface PipelineStageItem {
+  readonly seriesId: string
+  readonly label: string
+  readonly stage: number            // 1=최상류 → 3=최하류
+  readonly mom: number | null
+  readonly ann3m: number | null     // 주지표: 3M SAAR (%)
+  readonly yoy: number | null
+  readonly accel3m: number | null   // 실질 가속도 = ann3m − yoy (%p)
+}
+export interface PipelinePanel {
+  readonly stages: readonly PipelineStageItem[]
+  /** 상류(1·2단계 평균 ann3m) − 하류(3단계 ann3m) 갭 기준 종합 — ±0.5%p 임계 */
+  readonly read: 'building' | 'easing' | 'mixed' | null
+}
+
 /** PPI−CPI 마진 스프레드 1쌍 */
 export interface MarginSpreadItem {
   readonly key: string
@@ -305,6 +328,7 @@ export interface DashboardResponse {
   readonly nextRelease: NextRelease | null           // 다음 발표 D-day (없으면 null)
   readonly breadth:     InflationBreadth | null      // 인플레 폭
   readonly pcePipeline: PcePipeline | null           // PPI→PCE 파이프라인
+  readonly pipeline:    PipelinePanel | null          // 파이프라인 패스스루(미가공→가공→최종수요)
   readonly marginSpread: MarginSpread | null         // PPI−CPI 마진
   readonly momentum:    readonly MomentumRow[]        // 헤드라인 모멘텀 래더
   readonly briefing:    ReleaseBriefing | null        // 발표일 브리핑(종합)

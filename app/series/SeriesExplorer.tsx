@@ -24,8 +24,13 @@ const PAGE_SIZE = 20
 const FILTER_TAGS: readonly SeriesTag[] = [
   '상승가속', '상승둔화', '상승지속',
   '하락가속', '하락둔화', '하락지속',
-  '횡보', '추세반전', '10년최고', '10년최저',
+  '횡보', '추세반전', '10년최고', '10년최저', '역사적극단',
 ]
+
+// 태그 칩 호버 설명 (의미가 겹쳐 보이는 태그만)
+const TAG_TOOLTIPS: Partial<Record<SeriesTag, string>> = {
+  '역사적극단': '최신 YoY가 10년 분포 상위 5%(P95↑) 또는 하위 5%(P5↓) — 10년최고/최저(범위 끝값 근접)보다 넓은 꼬리 기준',
+}
 
 interface SeriesExplorerProps {
   initialData: SeriesFullListResponse | null
@@ -88,6 +93,7 @@ export function SeriesExplorer({ initialData }: SeriesExplorerProps) {
       else if (sortKey === 'category') { av = a.category; bv = b.category }
       else if (sortKey === 'mom') { av = a.mom; bv = b.mom }
       else if (sortKey === 'ann3m') { av = a.ann3m; bv = b.ann3m }
+      else if (sortKey === 'yoyPctile') { av = a.yoyPctile10y; bv = b.yoyPctile10y }
       else { av = a.yoy; bv = b.yoy }
 
       // null은 항상 뒤로
@@ -175,7 +181,7 @@ export function SeriesExplorer({ initialData }: SeriesExplorerProps) {
         <div>
           <span className="t-title" style={{ fontSize: 15 }}>시리즈 탐색</span>
           <span className="t-caption" style={{ marginLeft: 12 }}>
-            PPI 관련 전체 시리즈 · MoM·YoY 기준 정렬 가능
+            PPI 관련 전체 시리즈 · MoM·YoY·10년 백분위 기준 정렬 가능
           </span>
         </div>
         {initialData && (
@@ -185,13 +191,15 @@ export function SeriesExplorer({ initialData }: SeriesExplorerProps) {
         )}
       </header>
 
-      {/* ── Top Movers ── */}
+      {/* ── Top Movers (3열 × 상·하위 2행 — 열 단위로 메트릭 쌍 정렬) ── */}
       {movers && (
         <div className="nw-series-movers">
           <TopMoversTable title="MoM 상위 5 ▲" rows={movers.momTop}    metric="mom" />
-          <TopMoversTable title="MoM 하위 5 ▼" rows={movers.momBottom} metric="mom" />
           <TopMoversTable title="YoY 상위 5 ▲" rows={movers.yoyTop}    metric="yoy" />
+          <TopMoversTable title="10Y 백분위 상위 5 ▲" rows={movers.pctileTop} metric="pctile" />
+          <TopMoversTable title="MoM 하위 5 ▼" rows={movers.momBottom} metric="mom" />
           <TopMoversTable title="YoY 하위 5 ▼" rows={movers.yoyBottom} metric="yoy" />
+          <TopMoversTable title="10Y 백분위 하위 5 ▼" rows={movers.pctileBottom} metric="pctile" />
         </div>
       )}
 
@@ -239,6 +247,7 @@ export function SeriesExplorer({ initialData }: SeriesExplorerProps) {
                 onClick={() => handleToggleTag(t)}
                 disabled={count === 0}
                 aria-pressed={on}
+                title={TAG_TOOLTIPS[t]}
               >
                 #{t}<span className="nw-tag-count">{count.toLocaleString()}</span>
               </button>
@@ -292,6 +301,9 @@ export function SeriesExplorer({ initialData }: SeriesExplorerProps) {
               yoyMax10y={selectedMeta?.yoyMax10y ?? null}
               ann3m={selectedMeta?.ann3m ?? null}
               accel3m={selectedMeta?.accel3m ?? null}
+              yoyPctile10y={selectedMeta?.yoyPctile10y ?? null}
+              momPctile10y={selectedMeta?.momPctile10y ?? null}
+              yoyZ10y={selectedMeta?.yoyZ10y ?? null}
             />
           )}
         </div>

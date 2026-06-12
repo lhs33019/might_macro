@@ -6,7 +6,7 @@
  */
 
 import { createClient } from '@supabase/supabase-js'
-import { enrichObservations, classifyTrend } from '@/lib/analytics'
+import { enrichObservations, classifyTrend, isHistoricalExtreme } from '@/lib/analytics'
 import type {
   SeriesWithStats,
   TopMover,
@@ -32,6 +32,9 @@ type TrendStatsRow = {
   yoy_max_10y: number | string | null
   ann3m: number | string | null
   accel3m: number | string | null
+  yoy_pctile_10y: number | string | null
+  mom_pctile_10y: number | string | null
+  yoy_z10y: number | string | null
 }
 
 // 데이터 프론티어 대비 이 개월 수 이상 뒤처지면 "끊긴 시리즈"로 보고 태그 제외
@@ -99,7 +102,7 @@ export async function fetchAllSeriesWithStats(): Promise<SeriesFullListResponse>
   if (seriesList.length === 0) {
     return {
       data: [],
-      movers: { momTop: [], momBottom: [], yoyTop: [], yoyBottom: [], refDate: null },
+      movers: { momTop: [], momBottom: [], yoyTop: [], yoyBottom: [], pctileTop: [], pctileBottom: [], refDate: null },
       total: 0,
       computedAt: new Date().toISOString(),
     }
@@ -109,7 +112,7 @@ export async function fetchAllSeriesWithStats(): Promise<SeriesFullListResponse>
   const statsRaw = await fetchAllPaged<TrendStatsRow>(
     (from, to) => db
       .from('series_trend_mv')
-      .select('series_id, latest_date, latest_value, mom, yoy, yoy_3m, yoy_6m, mom_1m, mom_2m, yoy_min_10y, yoy_max_10y, ann3m, accel3m')
+      .select('series_id, latest_date, latest_value, mom, yoy, yoy_3m, yoy_6m, mom_1m, mom_2m, yoy_min_10y, yoy_max_10y, ann3m, accel3m, yoy_pctile_10y, mom_pctile_10y, yoy_z10y')
       .order('series_id', { ascending: true })
       .range(from, to),
     'series_trend_mv',
@@ -131,6 +134,9 @@ export async function fetchAllSeriesWithStats(): Promise<SeriesFullListResponse>
     deltaYoy: number | null
     yoyMin10y: number | null
     yoyMax10y: number | null
+    yoyPctile10y: number | null
+    momPctile10y: number | null
+    yoyZ10y: number | null
   }
   const rows = statsRaw
 
@@ -164,6 +170,11 @@ export async function fetchAllSeriesWithStats(): Promise<SeriesFullListResponse>
     const trend = isActive
       ? classifyTrend(metrics)
       : { state: null, tags: [] as SeriesWithStats['tags'], deltaYoy: null }
+    // 역사적극단 — 백분위(SQL 사전계산) 기준 보조 태그. classifyTrend 계약 밖이라 조립부에서 append.
+    const yoyPctile10y = toNum(r.yoy_pctile_10y)
+    const tags = isActive && isHistoricalExtreme(yoyPctile10y)
+      ? [...trend.tags, '역사적극단' as const]
+      : trend.tags
     statsMap.set(r.series_id, {
       latestDate:  r.latest_date,
       latestValue: toNum(r.latest_value),
@@ -171,11 +182,14 @@ export async function fetchAllSeriesWithStats(): Promise<SeriesFullListResponse>
       yoy:         metrics.yoy,
       ann3m:       toNum(r.ann3m),
       accel3m:     toNum(r.accel3m),
-      tags:        trend.tags,
+      tags,
       trendState:  trend.state,
       deltaYoy:    trend.deltaYoy,
       yoyMin10y:   metrics.yoyMin10y,
       yoyMax10y:   metrics.yoyMax10y,
+      yoyPctile10y,
+      momPctile10y: toNum(r.mom_pctile_10y),
+      yoyZ10y:      toNum(r.yoy_z10y),
     })
   }
 
@@ -200,15 +214,27 @@ export async function fetchAllSeriesWithStats(): Promise<SeriesFullListResponse>
       deltaYoy:    stats?.deltaYoy ?? null,
       yoyMin10y:   stats?.yoyMin10y ?? null,
       yoyMax10y:   stats?.yoyMax10y ?? null,
+      yoyPctile10y: stats?.yoyPctile10y ?? null,
+      momPctile10y: stats?.momPctile10y ?? null,
+      yoyZ10y:      stats?.yoyZ10y ?? null,
     }
   })
 
   // 6. TopMovers 계산 (null 제외 후 정렬)
   const withMom = data.filter((d) => d.mom != null) as (SeriesWithStats & { mom: number })[]
   const withYoy = data.filter((d) => d.yoy != null) as (SeriesWithStats & { yoy: number })[]
+  // 백분위 movers — 활성 시리즈만 (끊긴 시리즈의 과거 극단이 발굴 동선을 오염시키지 않게)
+  const withPctile = data.filter(
+    (d) => d.yoyPctile10y != null && cutoff != null && d.latestDate != null && d.latestDate >= cutoff,
+  ) as (SeriesWithStats & { yoyPctile10y: number })[]
 
   function toMover(d: SeriesWithStats, value: number): TopMover {
     return { seriesId: d.seriesId, title: d.title, category: d.category, value, direction: dirOf(value) }
+  }
+  /** 백분위 전용 — 방향은 변화율 부호가 아닌 분포 위치(P95↑/P5↓) 기준 */
+  function toPctileMover(d: SeriesWithStats, value: number): TopMover {
+    const direction = value >= 95 ? 'up' : value <= 5 ? 'down' : 'flat'
+    return { seriesId: d.seriesId, title: d.title, category: d.category, value, direction }
   }
 
   const sortDesc = (a: number, b: number) => b - a
@@ -219,6 +245,8 @@ export async function fetchAllSeriesWithStats(): Promise<SeriesFullListResponse>
     momBottom: [...withMom].sort((a, b) => sortAsc(a.mom, b.mom)).slice(0, 5).map((d) => toMover(d, d.mom)),
     yoyTop:    [...withYoy].sort((a, b) => sortDesc(a.yoy, b.yoy)).slice(0, 5).map((d) => toMover(d, d.yoy)),
     yoyBottom: [...withYoy].sort((a, b) => sortAsc(a.yoy, b.yoy)).slice(0, 5).map((d) => toMover(d, d.yoy)),
+    pctileTop:    [...withPctile].sort((a, b) => sortDesc(a.yoyPctile10y, b.yoyPctile10y)).slice(0, 5).map((d) => toPctileMover(d, d.yoyPctile10y)),
+    pctileBottom: [...withPctile].sort((a, b) => sortAsc(a.yoyPctile10y, b.yoyPctile10y)).slice(0, 5).map((d) => toPctileMover(d, d.yoyPctile10y)),
     refDate:   withMom[0]?.latestDate ?? null,
   }
 

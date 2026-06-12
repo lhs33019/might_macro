@@ -4,7 +4,7 @@ import { useState } from 'react'
 import type { SeriesWithStats } from '@/lib/types'
 import { TagChips } from './TagChips'
 
-export type SortKey = 'seriesId' | 'title' | 'category' | 'mom' | 'yoy' | 'ann3m'
+export type SortKey = 'seriesId' | 'title' | 'category' | 'mom' | 'yoy' | 'ann3m' | 'yoyPctile'
 export type SortDir = 'asc' | 'desc'
 
 type ColId = SortKey | 'tags'
@@ -29,6 +29,7 @@ const COLUMNS: { id: ColId; label: string; sortKey?: SortKey; min: number; initi
   { id: 'tags',     label: '특징',                            min: 150, initial: 220 },
   { id: 'mom',      label: 'MoM',       sortKey: 'mom',      min: 80,  initial: 100 },
   { id: 'yoy',      label: 'YoY',       sortKey: 'yoy',      min: 80,  initial: 100 },
+  { id: 'yoyPctile', label: '10Y 백분위', sortKey: 'yoyPctile', min: 88, initial: 108 },
   { id: 'ann3m',    label: '3M(연율)',  sortKey: 'ann3m',    min: 90,  initial: 120 },
   { id: 'category', label: '카테고리',  sortKey: 'category', min: 90,  initial: 120 },
 ]
@@ -49,6 +50,17 @@ function ValCell({ v }: { v: number | null }) {
   return (
     <span className={`nw-val-${d}`} style={{ fontSize: 12 }}>
       {glyph} {fmtVal(v)}
+    </span>
+  )
+}
+
+/** 10년 분포 백분위 셀 — 방향 지표가 아니므로 글리프 없음. P95↑/P5↓만 색 강조 + P 접두 이중 표현. */
+function PctileCell({ v }: { v: number | null }) {
+  if (v == null) return <span className="t-caption" style={{ color: 'var(--text-lo)' }}>—</span>
+  const cls = v >= 95 ? 'nw-val-up' : v <= 5 ? 'nw-val-down' : ''
+  return (
+    <span className={cls} style={{ fontSize: 12, fontFamily: 'var(--num)', fontFeatureSettings: '"tnum" 1' }}>
+      P{Math.round(v)}
     </span>
   )
 }
@@ -110,6 +122,8 @@ export function SeriesTable({
         return <ValCell v={s.mom} />
       case 'yoy':
         return <ValCell v={s.yoy} />
+      case 'yoyPctile':
+        return <PctileCell v={s.yoyPctile10y} />
       case 'ann3m':
         return <ValCell v={s.ann3m} />
       case 'category':

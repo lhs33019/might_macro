@@ -438,10 +438,10 @@ body {
    SERIES PAGE — 시리즈 탐색 페이지
    ============================================================ */
 
-/* Top Movers 4분할 그리드 */
+/* Top Movers 6분할 그리드 (3열 × 상·하위 2행 — MoM·YoY·10Y백분위) */
 .nw-series-movers {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: var(--sp-4);
   margin-bottom: var(--sp-4);
 }
@@ -674,6 +674,63 @@ body.nw-col-resizing { cursor: col-resize !important; user-select: none !importa
 .nw-pagination-info {
   font: 400 13px/1 var(--font-sans);
   color: var(--text-lo);
+}
+
+/* ============================================================
+   SCENARIO (베이스효과 시뮬레이터 — YoY 모드 전용)
+   ============================================================ */
+.nw-scenario-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.nw-num-input {
+  width: 72px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-default);
+  color: var(--text-hi);
+  font: 500 13px/1.2 var(--num);
+  font-feature-settings: "tnum" 1;
+  text-align: right;
+  padding: 7px 9px;
+  border-radius: var(--r-sm);
+  transition: border-color .16s;
+}
+.nw-num-input:focus { outline: none; border-color: var(--accent); }
+
+/* ============================================================
+   PIPELINE PASS-THROUGH (미가공 → 가공 → 최종수요)
+   ============================================================ */
+.nw-pipeline {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr auto 1fr;
+  gap: 8px;
+  align-items: stretch;
+}
+.nw-pipeline-stage {
+  background: var(--surface-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-md);
+  padding: 12px 14px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.nw-pipeline-arrow {
+  align-self: center;
+  color: var(--text-lo);
+  font-size: 15px;
+  line-height: 1;
+  padding: 0 2px;
+}
+.nw-pipeline-arrow::before { content: '→'; }
+@media (max-width: 760px) {
+  .nw-pipeline { grid-template-columns: 1fr; }
+  .nw-pipeline-arrow { align-self: flex-start; padding: 0 0 0 14px; }
+  .nw-pipeline-arrow::before { content: '↓'; }
 }
 
 /* ============================================================

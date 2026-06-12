@@ -9,6 +9,8 @@ export interface ChartPoint {
   index: number
   value: number | null
   consensus: number | null
+  /** 시나리오 프로젝션 포인트(가정 기반 미래값) — 실선·면적에서 제외하고 점선으로 그린다 */
+  projected?: boolean
 }
 
 interface LineChartProps {
@@ -81,7 +83,7 @@ export function LineChart({
   const linePath = useMemo(() => {
     let d = '', started = false
     points.forEach((p, i) => {
-      if (p.value == null) return
+      if (p.value == null || p.projected) return
       d += (started ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(p.value).toFixed(1) + ' '
       started = true
     })
@@ -91,7 +93,7 @@ export function LineChart({
 
   const areaPath = useMemo(() => {
     const pts: Array<[number, number]> = []
-    points.forEach((p, i) => { if (p.value != null) pts.push([i, p.value]) })
+    points.forEach((p, i) => { if (p.value != null && !p.projected) pts.push([i, p.value]) })
     if (!pts.length) return ''
     let d = `M ${x(pts[0][0]).toFixed(1)} ${y0.toFixed(1)} `
     pts.forEach(([i, v]) => { d += `L ${x(i).toFixed(1)} ${y(v).toFixed(1)} ` })
@@ -100,7 +102,30 @@ export function LineChart({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [points, W, H])
 
-  const lastVal = [...points].reverse().find((p) => p.value != null)?.value ?? 0
+  // 시나리오 점선 — 마지막 실측 좌표에서 시작해 프로젝션을 잇는다(연결선이 첫 세그먼트)
+  const projPath = useMemo(() => {
+    let lastMeasured = -1
+    for (let i = points.length - 1; i >= 0; i--) {
+      if (points[i].value != null && !points[i].projected) { lastMeasured = i; break }
+    }
+    let d = '', started = false
+    if (lastMeasured >= 0) {
+      d = 'M' + x(lastMeasured).toFixed(1) + ' ' + y(points[lastMeasured].value!).toFixed(1) + ' '
+      started = true
+    }
+    let any = false
+    points.forEach((p, i) => {
+      if (p.value == null || !p.projected) return
+      d += (started ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(p.value).toFixed(1) + ' '
+      started = true
+      any = true
+    })
+    return any ? d.trim() : ''
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [points, W, H])
+
+  // 방향색·끝점은 항상 실측 기준 — 시나리오가 차트의 시각 정체성을 바꾸지 않게
+  const lastVal = [...points].reverse().find((p) => p.value != null && !p.projected)?.value ?? 0
   const dir = lastVal > 0.02 ? 'up' : lastVal < -0.02 ? 'down' : 'flat'
   const dirColor = `var(--${dir})`
 
@@ -130,10 +155,17 @@ export function LineChart({
   const tipLeft = hover != null ? Math.min(Math.max(x(hover), padL + 4), W - 4) : 0
   const tipFlip = tipLeft > W * 0.62
 
-  // index of last non-null point
+  // index of last non-null measured point (프로젝션 제외)
   const lastIdx = (() => {
     for (let i = points.length - 1; i >= 0; i--) {
-      if (points[i].value != null) return i
+      if (points[i].value != null && !points[i].projected) return i
+    }
+    return -1
+  })()
+  // index of last projection point (점선 끝 hollow 마커용)
+  const lastProjIdx = (() => {
+    for (let i = points.length - 1; i >= 0; i--) {
+      if (points[i].value != null && points[i].projected) return i
     }
     return -1
   })()
@@ -199,6 +231,27 @@ export function LineChart({
           strokeLinejoin="round" strokeLinecap="round"
         />
 
+        {/* 시나리오 프로젝션 — 실측 | 가정 경계선 + 점선 (가정 구간에 면적 없음) */}
+        {projPath && lastIdx >= 0 && (
+          <line
+            x1={x(lastIdx)} x2={x(lastIdx)} y1={padT} y2={H - padB}
+            stroke="var(--border-default)" strokeWidth="1" strokeDasharray="3 4"
+          />
+        )}
+        {projPath && (
+          <path
+            d={projPath} fill="none"
+            stroke="var(--accent)" strokeWidth="2" strokeDasharray="5 4"
+            strokeOpacity="0.8" strokeLinejoin="round" strokeLinecap="round"
+          />
+        )}
+        {lastProjIdx >= 0 && (
+          <circle
+            cx={x(lastProjIdx)} cy={y(points[lastProjIdx].value!)} r="3"
+            fill="var(--bg-1)" stroke="var(--accent)" strokeWidth="1.5"
+          />
+        )}
+
         {/* consensus markers */}
         {showConsensus && points.map((p, i) =>
           p.consensus != null && p.value != null ? (
@@ -252,16 +305,16 @@ export function LineChart({
           }}
         >
           <div className="t-label" style={{ marginBottom: 8 }}>
-            {hp.y}년 {hp.m}월
+            {hp.y}년 {hp.m}월{hp.projected ? ' · 시나리오' : ''}
           </div>
           <TooltipRow
             dot={dirColor}
-            k="변동률"
+            k={hp.projected ? '시나리오 YoY' : '변동률'}
             v={`${hp.value > 0 ? '+' : ''}${hp.value.toFixed(2)}${unit}`}
             vc={`var(--${hp.value > 0 ? 'up' : hp.value < 0 ? 'down' : 'flat'})`}
           />
           {hp.index != null && (
-            <TooltipRow dot="var(--cat-goods)" k="Index" v={hp.index.toFixed(2)} />
+            <TooltipRow dot="var(--cat-goods)" k={hp.projected ? 'Index(가정)' : 'Index'} v={hp.index.toFixed(2)} />
           )}
           {showConsensus && hp.consensus != null && (
             <TooltipRow

@@ -12,6 +12,7 @@ import {
 } from '@/lib/analytics'
 import { HEADLINE_SERIES, HEADLINE_IDS } from '@/lib/config/headline'
 import { PCE_PPI_SERIES, PCE_PPI_IDS } from '@/lib/config/pce-ppi'
+import { PIPELINE_STAGES, PIPELINE_IDS } from '@/lib/config/pipeline'
 import { MARGIN_PAIRS } from '@/lib/config/macro'
 import type {
   DashboardResponse,
@@ -22,6 +23,8 @@ import type {
   InflationBreadth,
   PcePipeline,
   PcePipelineItem,
+  PipelinePanel,
+  PipelineStageItem,
   MarginSpread,
   MarginSpreadItem,
   MomentumRow,
@@ -219,10 +222,11 @@ export async function fetchDashboard(): Promise<DashboardResponse> {
 
   // 5. 포커스 패널 메트릭 — 헤드라인/PCE/마진 시리즈를 관측값에서 직접 계산(MV 비의존)
   const marginIds = Array.from(new Set(MARGIN_PAIRS.flatMap((p) => [p.ppiId, p.cpiId])))
-  const [headlineMetrics, pceMetrics, marginMetrics] = await Promise.all([
+  const [headlineMetrics, pceMetrics, marginMetrics, pipelineMetrics] = await Promise.all([
     loadMetricsFor(db, HEADLINE_IDS, 14),
     loadMetricsFor(db, PCE_PPI_IDS, 14),
     loadMetricsFor(db, marginIds, 14),
+    loadMetricsFor(db, PIPELINE_IDS, 14),
   ])
 
   // 5a. 히트맵 — 헤드라인 enriched(오름차순)에서 최근 N개월 MoM
@@ -261,6 +265,30 @@ export async function fetchDashboard(): Promise<DashboardResponse> {
     return { key: p.key, label: p.label, ppiYoy, cpiYoy, gap }
   })
   const marginSpread: MarginSpread = { pairs: marginItems }
+
+  // 5e. 파이프라인 패스스루 — 미가공→가공→최종수요 (전 단계 SA, WPSID 체계)
+  //     read = 상류(1·2단계) 평균 ann3m − 하류(3단계) ann3m, ±0.5%p 임계.
+  const pipelineStages: PipelineStageItem[] = PIPELINE_STAGES.map((def) => {
+    const b = pipelineMetrics.get(def.id)
+    const ann3m = b?.ann3m ?? null
+    const yoy = b?.yoy ?? null
+    return {
+      seriesId: def.id, label: def.label, stage: def.stage,
+      mom: b?.mom ?? null, ann3m, yoy,
+      accel3m: ann3m != null && yoy != null ? ann3m - yoy : null,
+    }
+  })
+  const PIPELINE_GAP_EPS = 0.5
+  const upstreamAnns = pipelineStages.filter((s) => s.stage < 3 && s.ann3m != null).map((s) => s.ann3m!)
+  const downstreamAnn = pipelineStages.find((s) => s.stage === 3)?.ann3m ?? null
+  let pipelineRead: PipelinePanel['read'] = null
+  if (upstreamAnns.length > 0 && downstreamAnn != null) {
+    const gap = upstreamAnns.reduce((a, b) => a + b, 0) / upstreamAnns.length - downstreamAnn
+    pipelineRead = gap > PIPELINE_GAP_EPS ? 'building' : gap < -PIPELINE_GAP_EPS ? 'easing' : 'mixed'
+  }
+  const pipeline: PipelinePanel | null = pipelineStages.some((s) => s.ann3m != null)
+    ? { stages: pipelineStages, read: pipelineRead }
+    : null
 
   // 6. AI 한줄평 — 최신 1행
   const { data: insightRow, error: insightErr } = await db
@@ -351,6 +379,7 @@ export async function fetchDashboard(): Promise<DashboardResponse> {
     nextRelease,
     breadth,
     pcePipeline,
+    pipeline,
     marginSpread,
     momentum,
     briefing,

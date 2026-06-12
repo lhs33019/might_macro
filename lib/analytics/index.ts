@@ -43,6 +43,69 @@ export function calcCarryover(latest: number, value11mAgo: number): number {
   return (latest / value11mAgo - 1) * 100
 }
 
+/** 배열에서 마지막 비결측 값의 인덱스. 없으면 -1. (트레일링 결측 안전 앵커) */
+export function lastNonNullIndex(values: readonly (number | null)[]): number {
+  for (let i = values.length - 1; i >= 0; i--) {
+    if (values[i] != null) return i
+  }
+  return -1
+}
+
+/** projectYoyPath의 미래 1개월 분 결과 */
+export interface YoyProjectionPoint {
+  k: number              // 앵커(마지막 실측)로부터 k번째 미래 월 (1-based)
+  value: number          // 프로젝션 지수 레벨 = v_t × (1 + m/100)^k
+  yoy: number | null     // 프로젝션 YoY (%) — 분모 불가(결측·≤0·이력 부족) 시 null
+}
+
+/**
+ * 베이스효과 시뮬레이션 — "향후 MoM이 m%로 지속되면 YoY 경로는?" (calcCarryover의 다개월 일반화)
+ *   v_{t+k} = v_t × (1 + m/100)^k
+ *   YoY_{t+k}: k≤12이면 분모 = 실측 v_{t+k-12}, k>12이면 분모도 프로젝션
+ *              → k≥12부터 ((1+m/100)^12 - 1)×100에 정확히 수렴.
+ * values는 date 오름차순 지수 레벨. 가정 기반 시뮬레이션이며 예측이 아니다(화면 캡션 의무).
+ */
+export function projectYoyPath(
+  values: readonly (number | null)[],
+  assumedMoM: number,
+  horizon = 12,
+): YoyProjectionPoint[] {
+  const t = lastNonNullIndex(values)
+  if (t < 0 || horizon <= 0) return []
+  const anchor = values[t]!
+  const g = 1 + assumedMoM / 100
+  if (anchor <= 0 || g <= 0) return []
+
+  const out: YoyProjectionPoint[] = []
+  for (let k = 1; k <= horizon; k++) {
+    const value = anchor * Math.pow(g, k)
+    let denom: number | null
+    if (k <= 12) {
+      const idx = t + k - 12
+      denom = idx >= 0 ? values[idx] : null
+    } else {
+      denom = anchor * Math.pow(g, k - 12)
+    }
+    const yoy = denom != null && denom > 0 ? calcYoY(value, denom) : null
+    out.push({ k, value, yoy })
+  }
+  return out
+}
+
+/** 역사적극단 판정 임계 — 10년 분포 상위/하위 5% (백분위 기준, z-score 아님) */
+export const EXTREME_PCTILE_HI = 95
+export const EXTREME_PCTILE_LO = 5
+
+/**
+ * 역사적극단: 최신 YoY가 10년 분포의 상위 5%(P95↑) 또는 하위 5%(P5↓).
+ * 레벨 기준 태그(10년최고/최저 — 범위 끝값 근접)보다 넓은 꼬리 기준.
+ * 백분위는 SQL(series_trend_mv)에서 percent_rank로 사전계산 — 표본<24개월이면 null.
+ */
+export function isHistoricalExtreme(yoyPctile10y: number | null): boolean {
+  return yoyPctile10y != null &&
+    (yoyPctile10y >= EXTREME_PCTILE_HI || yoyPctile10y <= EXTREME_PCTILE_LO)
+}
+
 /** PPI−CPI 마진 갭 (%p) = 생산자물가 YoY − 소비자물가 YoY. 양수=투입가가 산출가 추월(마진 압박). */
 export function calcMarginGap(ppiYoy: number, cpiYoy: number): number {
   return ppiYoy - cpiYoy

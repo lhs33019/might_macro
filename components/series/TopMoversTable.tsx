@@ -5,24 +5,28 @@ import type { TopMover } from '@/lib/types'
 interface TopMoversTableProps {
   title: string
   rows: readonly TopMover[]
-  metric: 'mom' | 'yoy'
+  metric: 'mom' | 'yoy' | 'pctile'
 }
 
-function fmtVal(v: number): string {
+function fmtVal(v: number, metric: TopMoversTableProps['metric']): string {
+  // pctile은 변화율이 아닌 분포 위치(0~100) — P 접두, 부호·% 없음
+  if (metric === 'pctile') return `P${v.toFixed(0)}`
   return (v > 0 ? '+' : '') + v.toFixed(2) + '%'
 }
 
-function ValCell({ value, direction }: { value: number; direction: TopMover['direction'] }) {
+function ValCell({ value, direction, metric }: {
+  value: number; direction: TopMover['direction']; metric: TopMoversTableProps['metric']
+}) {
   const cls = `nw-val-${direction}`
   const glyph = direction === 'up' ? '▲' : direction === 'down' ? '▼' : '—'
   return (
     <span className={cls} style={{ whiteSpace: 'nowrap' }}>
-      {glyph} {fmtVal(value)}
+      {glyph} {fmtVal(value, metric)}
     </span>
   )
 }
 
-export function TopMoversTable({ title, rows }: TopMoversTableProps) {
+export function TopMoversTable({ title, rows, metric }: TopMoversTableProps) {
   return (
     <div className="nw-card" style={{ padding: '16px 18px' }}>
       <div className="t-label" style={{ marginBottom: 10 }}>{title}</div>
@@ -62,7 +66,7 @@ export function TopMoversTable({ title, rows }: TopMoversTableProps) {
                   {r.title.length > 28 ? r.title.slice(0, 28) + '…' : r.title}
                 </td>
                 <td style={{ textAlign: 'right' }}>
-                  <ValCell value={r.value} direction={r.direction} />
+                  <ValCell value={r.value} direction={r.direction} metric={metric} />
                 </td>
               </tr>
             ))}

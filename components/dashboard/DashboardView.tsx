@@ -5,7 +5,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { LayoutGrid } from 'lucide-react'
 import { KpiCard } from '@/components/KpiCard'
-import { Segmented, Toggle } from '@/components/controls'
+import { Segmented, Toggle, CheckChip } from '@/components/controls'
 import { Card, Legend } from '@/components/Card'
 import { LineChart, LineChartSkeleton, type ChartPoint } from '@/components/charts/LineChart'
 import { Heatmap } from '@/components/charts/Heatmap'
@@ -14,9 +14,10 @@ import { InsightBanner } from './InsightBanner'
 import { SectorAnn3mBars } from './SectorAnn3mBars'
 import { ReleaseBriefing } from './ReleaseBriefing'
 import { PcePipelineCard } from './PcePipelineCard'
+import { PipelineCard } from './PipelineCard'
 import { MarginSpreadCard } from './MarginSpreadCard'
 import { MomentumLadder } from './MomentumLadder'
-import { calcAnnualized3M, calcContribution } from '@/lib/analytics'
+import { calcAnnualized3M, calcContribution, projectYoyPath, lastNonNullIndex } from '@/lib/analytics'
 import { FD_RELATIVE_IMPORTANCE } from '@/lib/config/weights'
 import { isApiError } from '@/lib/types'
 import type {
@@ -33,6 +34,10 @@ const PERIODS = [
 ] as const
 type Period = typeof PERIODS[number]['v']
 type Mode   = 'ann3m' | 'mom' | 'yoy'
+type ScenarioPreset = 'zero' | 'p02' | 'avg3m' | 'custom'
+
+/** 시나리오 프로젝션 지평 (k=12에서 YoY가 (1+m)^12−1에 수렴 — 그 뒤는 정보 없음) */
+const SCENARIO_HORIZON = 12
 
 function fmtPct(v: number | null): string {
   if (v == null) return '–'
@@ -61,7 +66,7 @@ export function DashboardView({ data }: DashboardViewProps) {
   const isMobile = useIsMobile()
   const {
     headline, sectorAnn3m, heatmap, insight, refDate, nextRelease,
-    pcePipeline, marginSpread, momentum, briefing,
+    pcePipeline, pipeline, marginSpread, momentum, briefing,
   } = data
 
   // 추세 차트 — 선택된 헤드라인 시리즈 + 모드
@@ -70,6 +75,11 @@ export function DashboardView({ data }: DashboardViewProps) {
   const [period, setPeriod] = useState<Period>('3Y')
   const [obs, setObs]       = useState<ObservationListResponse | null>(null)
   const [obsLoading, setObsLoading] = useState(false)
+
+  // 베이스효과 시나리오 (YoY 모드 전용) — 가정 MoM이 지속될 때의 YoY 경로 프로젝션
+  const [scenario, setScenario]   = useState(false)
+  const [preset, setPreset]       = useState<ScenarioPreset>('avg3m')
+  const [customMoM, setCustomMoM] = useState('0.2')   // input은 string 보관 (빈 입력 허용)
 
   const selectedMeta = headline.find((h) => h.seriesId === selectedId) ?? headline[0]
 
@@ -98,6 +108,25 @@ export function DashboardView({ data }: DashboardViewProps) {
 
   const n = PERIODS.find((p) => p.v === period)!.n
 
+  // 시나리오 프리셋 '3M평균' — 비결측 MoM 마지막 3개 평균 (3개 미만이면 사용 불가)
+  const recentMomAvg = useMemo(() => {
+    if (!obs) return null
+    const moms = obs.data.map((o) => o.mom).filter((m): m is number => m != null).slice(-3)
+    return moms.length === 3 ? moms.reduce((a, b) => a + b, 0) / 3 : null
+  }, [obs])
+
+  // 적용 가정 MoM (%/월) — custom은 [-5, +5] 클램프, 무효 입력은 null(프로젝션 미표시)
+  const effectiveMoM = useMemo(() => {
+    if (preset === 'zero') return 0
+    if (preset === 'p02') return 0.2
+    if (preset === 'avg3m') return recentMomAvg
+    if (customMoM.trim() === '') return null
+    const v = Number(customMoM)
+    return Number.isFinite(v) ? Math.max(-5, Math.min(5, v)) : null
+  }, [preset, customMoM, recentMomAvg])
+
+  const scenarioOn = mode === 'yoy' && scenario && effectiveMoM != null
+
   // 모드별 차트 포인트 (ann3m는 관측값에서 롤링 3M SAAR 계산)
   // YoY 모드 + 선택 시리즈가 기준월 컨센서스를 가지면 최신 월에 컨센서스 마커를 얹는다.
   const consensusYoy = mode === 'yoy' ? (selectedMeta?.consensusYoy ?? null) : null
@@ -123,8 +152,32 @@ export function DashboardView({ data }: DashboardViewProps) {
       const last = sliced[sliced.length - 1]
       sliced[sliced.length - 1] = { ...last, consensus: consensusYoy }
     }
+    // 시나리오 프로젝션 — 풀 이력 기준(분모는 마지막 11개월 실측이라 기간 슬라이스와 무관)
+    if (scenarioOn) {
+      const values = items.map((o) => o.value)
+      const t = lastNonNullIndex(values)
+      if (t >= 0) {
+        const [ay, am] = items[t].date.slice(0, 7).split('-').map(Number)
+        for (const pr of projectYoyPath(values, effectiveMoM!, SCENARIO_HORIZON)) {
+          if (pr.yoy == null) continue
+          const mi = ay * 12 + (am - 1) + pr.k   // Date 객체 없이 산술 생성 (TZ 함정 회피)
+          const fy = Math.floor(mi / 12)
+          const fm = (mi % 12) + 1
+          sliced.push({
+            date: `${fy}-${String(fm).padStart(2, '0')}-01`,
+            y: fy, m: fm,
+            index: pr.value,
+            value: pr.yoy,
+            consensus: null,
+            projected: true,
+          })
+        }
+      }
+    }
     return sliced
-  }, [obs, mode, n, consensusYoy])
+  }, [obs, mode, n, consensusYoy, scenarioOn, effectiveMoM])
+
+  const hasProjection = chartPoints.some((p) => p.projected)
 
   // 히트맵 — 8개 시리즈의 셀을 공통 월축으로 정규화
   const { heatRows, heatMonths } = useMemo(() => {
@@ -160,6 +213,14 @@ export function DashboardView({ data }: DashboardViewProps) {
     : null
 
   const handleSelectSeries = useCallback((id: string) => setSelectedId(id), [])
+
+  const handleScenarioToggle = useCallback((on: boolean) => {
+    setScenario(on)
+    // 긴 기간에서 켜면 12개월 점선이 시각적으로 묻힘 — 1회성 자동 전환(이후 기간 변경 자유)
+    if (on && (period === '5Y' || period === 'ALL')) setPeriod('3Y')
+  }, [period])
+
+  const fmtMom = effectiveMoM != null ? (effectiveMoM > 0 ? '+' : '') + effectiveMoM.toFixed(2) : ''
 
   return (
     <div className="nw-app">
@@ -257,6 +318,48 @@ export function DashboardView({ data }: DashboardViewProps) {
             <Segmented options={[...PERIODS]} value={period} onChange={(v) => setPeriod(v as Period)} />
           </div>
 
+          {/* 베이스효과 시나리오 — YoY 모드 전용 ("MoM이 x%로 지속되면 YoY 경로는?") */}
+          {mode === 'yoy' && (
+            <div className="nw-scenario-row">
+              <CheckChip checked={scenario} onChange={handleScenarioToggle}>시나리오</CheckChip>
+              {scenario && (
+                <>
+                  <Toggle
+                    options={[
+                      { v: 'zero', label: '0%' },
+                      { v: 'p02', label: '+0.2%' },
+                      { v: 'avg3m', label: '3M평균' },
+                      { v: 'custom', label: '직접' },
+                    ]}
+                    value={preset}
+                    onChange={(v) => setPreset(v as ScenarioPreset)}
+                  />
+                  {preset === 'custom' && (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <input
+                        type="number" step={0.1} min={-5} max={5}
+                        className="nw-num-input"
+                        value={customMoM}
+                        onChange={(e) => setCustomMoM(e.target.value)}
+                        aria-label="가정 MoM (%/월)"
+                      />
+                      <span className="t-caption">%/월</span>
+                    </span>
+                  )}
+                  {effectiveMoM != null ? (
+                    <span className="t-caption" style={{ fontFamily: 'var(--num)', fontFeatureSettings: '"tnum" 1' }}>
+                      가정 MoM {fmtMom}%/월 · {SCENARIO_HORIZON}개월
+                    </span>
+                  ) : (
+                    <span className="t-caption">
+                      {preset === 'avg3m' ? 'MoM 이력 부족 — 다른 프리셋 선택' : '유효한 MoM 가정을 입력하세요'}
+                    </span>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
           {obsLoading ? (
             <LineChartSkeleton h={isMobile ? 240 : 340} />
           ) : chartPoints.length === 0 ? (
@@ -271,6 +374,15 @@ export function DashboardView({ data }: DashboardViewProps) {
             <Legend color="var(--accent)" label={modeLabel} line />
             {consensusYoy != null && (
               <Legend color="var(--flat)" label={`컨센서스 YoY ${consensusYoy.toFixed(1)}%`} />
+            )}
+            {hasProjection && (
+              <>
+                <Legend color="var(--accent)" label={`시나리오 YoY (가정 MoM ${fmtMom}%/월)`} line />
+                <span className="t-caption">* 가정 기반 시뮬레이션 · 예측 아님</span>
+              </>
+            )}
+            {scenarioOn && !hasProjection && (
+              <span className="t-caption">이력 부족 — 시나리오 불가</span>
             )}
             {selectedMeta?.seasonalAdj === 'NSA' && mode === 'ann3m' && (
               <span className="t-caption" style={{ marginLeft: 'auto' }}>
@@ -321,6 +433,18 @@ export function DashboardView({ data }: DashboardViewProps) {
                 기여 합계 {(fdContribTotal >= 0 ? '+' : '') + fdContribTotal.toFixed(2)}%p
               </span>
             </div>
+          </Card>
+        )}
+
+        {/* 파이프라인 패스스루 — full width (미가공→가공→최종수요) */}
+        {pipeline && (
+          <Card
+            eyebrow="파이프라인 패스스루"
+            title="미가공 → 가공 → 최종수요 · 물가 전이"
+            style={{ gridColumn: isMobile ? 'auto' : '1 / 3' }}
+            right={<span className="t-caption">{refMonth} · 3M 연율 · SA</span>}
+          >
+            <PipelineCard data={pipeline} />
           </Card>
         )}
 

@@ -6,6 +6,7 @@ import assert from 'node:assert/strict'
 import {
   calcMoM, calcYoY, classifyTrend, calcAnnualized3M, calcAccel3M, calcContribution,
   calcAnnualized, calcCarryover, calcMarginGap, calcBreadth,
+  projectYoyPath, lastNonNullIndex, isHistoricalExtreme,
 } from './index'
 import type { TrendMetrics } from '@/lib/types'
 
@@ -148,4 +149,82 @@ test('YoY 없으면 state=null, tags=[]', () => {
   const r = classifyTrend(metrics({ mom: 1.2 }))
   assert.equal(r.state, null)
   assert.deepEqual(r.tags, [])
+})
+
+// ─── 베이스효과 시뮬레이션 (projectYoyPath) ──────────────────
+// 13개 실측 (t=12, v_t=112): 100, 101, ..., 112 — 매월 +1pt 선형
+const linear13 = Array.from({ length: 13 }, (_, i) => 100 + i)
+
+test('projectYoyPath: MoM=0의 첫 달은 calcCarryover와 정합', () => {
+  const p = projectYoyPath(linear13, 0)
+  // k=1의 분모 = v_{t-11} = values[1] = 101, 값 유지(112)
+  assert.ok(near(p[0].yoy!, calcCarryover(112, 101)))
+})
+test('projectYoyPath: flat 이력 + MoM=0.2 → 12개월째 (1.002^12-1)*100 수렴', () => {
+  const flat = Array.from({ length: 24 }, () => 100)
+  const p = projectYoyPath(flat, 0.2)
+  const limit = (Math.pow(1.002, 12) - 1) * 100
+  assert.ok(near(p[11].yoy!, limit))
+})
+test('projectYoyPath: flat 100 + MoM=1 손계산 (k=1: 101/+1%, k=2: +2.01%)', () => {
+  const flat = Array.from({ length: 13 }, () => 100)
+  const p = projectYoyPath(flat, 1)
+  assert.ok(near(p[0].value, 101))
+  assert.ok(near(p[0].yoy!, 1))
+  assert.ok(near(p[1].yoy!, 2.01))
+})
+test('projectYoyPath: 분모 결측은 해당 월만 null (전파 안 함)', () => {
+  const vals: (number | null)[] = [...linear13]
+  vals[1] = null // k=1의 분모(v_{t-11})만 결측
+  const p = projectYoyPath(vals, 0)
+  assert.equal(p[0].yoy, null)
+  assert.notEqual(p[1].yoy, null)
+  assert.ok(near(p[0].value, 112)) // 레벨은 계산됨
+})
+test('projectYoyPath: k>12은 분모도 프로젝션 → 전부 수렴값', () => {
+  const p = projectYoyPath(linear13, 0.5, 18)
+  const limit = (Math.pow(1.005, 12) - 1) * 100
+  for (let k = 12; k < 18; k++) assert.ok(near(p[k].yoy!, limit))
+})
+test('projectYoyPath: 빈 배열·전부 null → []', () => {
+  assert.deepEqual(projectYoyPath([], 0.2), [])
+  assert.deepEqual(projectYoyPath([null, null], 0.2), [])
+})
+test('projectYoyPath: 이력 12개월 미만 → 초기 k는 yoy null, 분모 생기면 계산', () => {
+  const short = [100, 101, 102, 103, 104, 105] // 길이 6, t=5
+  const p = projectYoyPath(short, 0)
+  // k=1..6: 분모 인덱스 t+k-12 < 0 → null. k=7: 분모 = values[0] = 100
+  for (let i = 0; i < 6; i++) assert.equal(p[i].yoy, null)
+  assert.ok(near(p[6].yoy!, calcYoY(105, 100)))
+})
+test('projectYoyPath: 트레일링 null은 건너뛰고 마지막 실측을 앵커로', () => {
+  const vals: (number | null)[] = [...linear13, null] // 끝에 결측
+  const p = projectYoyPath(vals, 1)
+  assert.ok(near(p[0].value, 112 * 1.01))
+  assert.equal(lastNonNullIndex(vals), 12)
+})
+test('projectYoyPath: 앵커 ≤ 0 또는 g ≤ 0 → []', () => {
+  assert.deepEqual(projectYoyPath([100, 0], 0.2), [])
+  assert.deepEqual(projectYoyPath(linear13, -100), [])
+})
+test('projectYoyPath: horizon=0 → []', () => {
+  assert.deepEqual(projectYoyPath(linear13, 0.2, 0), [])
+})
+
+// ─── 역사적극단 판정 (isHistoricalExtreme) ──────────────────
+test('isHistoricalExtreme: 경계 — P95·P5는 극단, 그 안쪽은 아님', () => {
+  assert.equal(isHistoricalExtreme(95), true)
+  assert.equal(isHistoricalExtreme(5), true)
+  assert.equal(isHistoricalExtreme(94.99), false)
+  assert.equal(isHistoricalExtreme(5.01), false)
+})
+test('isHistoricalExtreme: 끝값 P100·P0은 극단', () => {
+  assert.equal(isHistoricalExtreme(100), true)
+  assert.equal(isHistoricalExtreme(0), true)
+})
+test('isHistoricalExtreme: 중간값은 극단 아님', () => {
+  assert.equal(isHistoricalExtreme(50), false)
+})
+test('isHistoricalExtreme: null(표본 부족)은 극단 아님', () => {
+  assert.equal(isHistoricalExtreme(null), false)
 })

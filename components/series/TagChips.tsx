@@ -6,7 +6,8 @@ import type { SeriesTag } from '@/lib/types'
 export function tagTone(tag: SeriesTag): 'up' | 'down' | 'accent' | 'flat' {
   if (tag.startsWith('상승') || tag === '10년최고') return 'up'
   if (tag.startsWith('하락') || tag === '10년최저') return 'down'
-  if (tag === '추세반전') return 'accent'
+  // 역사적극단은 상·하위 양쪽이라 방향 없음 — 추세반전과 같은 accent
+  if (tag === '추세반전' || tag === '역사적극단') return 'accent'
   return 'flat' // 횡보
 }
 
