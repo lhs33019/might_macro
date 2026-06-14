@@ -61,14 +61,14 @@ export function SeriesExplorer({ initialData }: SeriesExplorerProps) {
     return counts
   }, [allData])
 
-  // 검색어 + 태그 필터 (태그는 다중 선택 시 OR)
+  // 검색어 + 태그 필터 (태그는 다중 선택 시 AND — 전부 일치)
   const filtered = useMemo<readonly SeriesWithStats[]>(() => {
     const q = query.trim().toLowerCase()
     return allData.filter((s) => {
       const matchQuery =
         !q || s.seriesId.toLowerCase().includes(q) || s.title.toLowerCase().includes(q)
       const matchTags =
-        activeTags.size === 0 || s.tags.some((t) => activeTags.has(t))
+        activeTags.size === 0 || [...activeTags].every((t) => s.tags.includes(t))
       return matchQuery && matchTags
     })
   }, [allData, query, activeTags])
