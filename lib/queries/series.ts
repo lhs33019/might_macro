@@ -40,6 +40,10 @@ type TrendStatsRow = {
 // 데이터 프론티어 대비 이 개월 수 이상 뒤처지면 "끊긴 시리즈"로 보고 태그 제외
 const ACTIVE_WINDOW_MONTHS = 3
 
+// PPI 시리즈만 노출 — BLS PPI 타이틀은 예외 없이 'Producer Price Index' 포함(화이트리스트).
+// 카테고리 트리 탐색에 섞여 들어온 매크로 지표(EXPINF·실질금리·STLPPM·MICH·CPI 등 42종) 제외.
+const PPI_TITLE_PATTERN = '%Producer Price Index%'
+
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -94,6 +98,7 @@ export async function fetchAllSeriesWithStats(): Promise<SeriesFullListResponse>
     (from, to) => db
       .from('series')
       .select('series_id, title, units, frequency, seasonal_adj, category, last_updated')
+      .ilike('title', PPI_TITLE_PATTERN)
       .order('series_id', { ascending: true })
       .range(from, to),
     'series',

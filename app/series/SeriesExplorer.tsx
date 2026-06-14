@@ -181,7 +181,7 @@ export function SeriesExplorer({ initialData }: SeriesExplorerProps) {
         <div>
           <span className="t-title" style={{ fontSize: 15 }}>시리즈 탐색</span>
           <span className="t-caption" style={{ marginLeft: 12 }}>
-            PPI 관련 전체 시리즈 · MoM·YoY·10년 백분위 기준 정렬 가능
+            PPI 상품·산업 시리즈 · MoM·YoY·10년 백분위 기준 정렬 가능
           </span>
         </div>
         {initialData && (
